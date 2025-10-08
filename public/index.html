@@ -6,71 +6,166 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>委託在庫 使用記録</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; background-color: #f4f4f4; }
+        body { font-family: sans-serif; padding: 20px; background-color: #f4f4f4; max-width: 800px; margin: 0 auto; }
+        h1 { text-align: center; }
+        .control-group { margin-bottom: 20px; }
+        label { font-weight: bold; margin-right: 10px; }
+        select, input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
         .part-item { background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
         button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        button:disabled { background-color: #cccccc; }
         button:active { background-color: #0056b3; }
-        #status { margin-top: 20px; padding: 10px; background-color: #e0f7e0; border-radius: 5px; text-align: center; }
+        #status { margin-top: 20px; padding: 10px; background-color: #e9ecef; border-radius: 5px; text-align: center; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h1>在庫使用記録 - [工場名]</h1>
-    <input type="text" id="mechanic_name" placeholder="整備士名（オプション）" style="width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 5px;">
-    <div id="part-list"></div>
-    <div id="status">部品を選択してください</div>
+    <h1>委託在庫 使用記録</h1>
+
+    <div class="control-group">
+        <label for="shop-select">1. 工場を選択してください</label>
+        <select id="shop-select" onchange="onShopSelect()">
+            <option value="">---</option>
+        </select>
+    </div>
+
+    <div class="control-group">
+        <label for="mechanic_name">2. 整備士名（オプション）</label>
+        <input type="text" id="mechanic_name" placeholder="名前を入力...">
+    </div>
+
+    <hr>
+
+    <div id="part-list-container" style="display: none;">
+        <h3>3. 使用した部品を選択してください</h3>
+        <div id="part-list"></div>
+    </div>
+
+    <div id="status">工場を選択してください</div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', loadParts);
+        document.addEventListener('DOMContentLoaded', loadShops);
+
+        const shopSelect = document.getElementById('shop-select');
         const partListDiv = document.getElementById('part-list');
+        const partListContainer = document.getElementById('part-list-container');
         const statusDiv = document.getElementById('status');
         const mechanicInput = document.getElementById('mechanic_name');
 
-        async function loadParts() {
-            const response = await fetch('/api/parts');
-            const parts = await response.json();
-            partListDiv.innerHTML = ''; 
+        let currentShopId = null;
 
-            parts.forEach(part => {
-                const item = document.createElement('div');
-                item.className = 'part-item';
-                
-                const info = document.createElement('span');
-                info.textContent = `${part.part_name} (在庫: ${part.current_stock})`;
-                item.appendChild(info);
+        // 最初に工場リストを読み込む
+        async function loadShops() {
+            try {
+                const response = await fetch('/api/shops');
+                if (!response.ok) throw new Error('工場の取得に失敗しました');
+                const shops = await response.json();
 
-                const button = document.createElement('button');
-                button.textContent = '使用';
-                button.onclick = () => usePart(part.id, part.part_name);
-                item.appendChild(button);
-                
-                partListDiv.appendChild(item);
-            });
+                shops.forEach(shop => {
+                    const option = document.createElement('option');
+                    option.value = shop.id;
+                    option.textContent = shop.name;
+                    shopSelect.appendChild(option);
+                });
+            } catch (error) {
+                showError(error.message);
+            }
         }
 
+        // 工場が選択されたときの処理
+        function onShopSelect() {
+            currentShopId = shopSelect.value;
+            if (currentShopId) {
+                partListContainer.style.display = 'block';
+                loadInventory(currentShopId);
+                statusDiv.textContent = `${shopSelect.options[shopSelect.selectedIndex].text} の在庫を読み込みました。`;
+                statusDiv.style.backgroundColor = '#e9ecef';
+            } else {
+                partListContainer.style.display = 'none';
+                partListDiv.innerHTML = '';
+                statusDiv.textContent = '工場を選択してください';
+            }
+        }
+
+        // 指定された工場の在庫を読み込む
+        async function loadInventory(shopId) {
+            partListDiv.innerHTML = '読み込み中...';
+            try {
+                const response = await fetch(`/api/shops/${shopId}/inventory`);
+                if (!response.ok) throw new Error('在庫の取得に失敗しました');
+                const inventory = await response.json();
+                partListDiv.innerHTML = '';
+
+                if (inventory.length === 0) {
+                    partListDiv.innerHTML = '<p>この工場の在庫はありません。</p>';
+                    return;
+                }
+
+                inventory.forEach(part => {
+                    const item = document.createElement('div');
+                    item.className = 'part-item';
+
+                    const info = document.createElement('span');
+                    info.textContent = `${part.part_name} (品番: ${part.part_number}, 在庫: ${part.quantity})`;
+                    item.appendChild(info);
+
+                    const useButton = document.createElement('button');
+                    useButton.textContent = '使用';
+                    useButton.onclick = () => usePart(part.id, part.part_name);
+                    item.appendChild(useButton);
+
+                    partListDiv.appendChild(item);
+                });
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        // 部品使用を記録する
         async function usePart(partId, partName) {
+            if (!currentShopId) {
+                showError('先に工場を選択してください。');
+                return;
+            }
             const mechanic_name = mechanicInput.value;
-            statusDiv.textContent = `${partName} を記録中...`;
+            showStatus(`「${partName}」を記録中...`);
 
             try {
                 const response = await fetch('/api/use-part', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ part_id: partId, mechanic_name: mechanic_name })
+                    body: JSON.stringify({
+                        part_id: partId,
+                        shop_id: currentShopId,
+                        mechanic_name: mechanic_name
+                    })
                 });
                 const result = await response.json();
-                
+
                 if (response.ok) {
-                    statusDiv.style.backgroundColor = '#e0f7e0';
-                    statusDiv.textContent = `✅ ${partName} の使用を記録しました。残り在庫: ${result.stock_left}`;
-                    loadParts(); 
+                    showSuccess(`✅ ${partName} の使用を記録しました。残り在庫: ${result.stock_left}`);
+                    loadInventory(currentShopId); // 在庫リストを再読み込み
                 } else {
-                    statusDiv.style.backgroundColor = '#f7e0e0';
-                    statusDiv.textContent = `❌ エラー: ${result.error || '不明なエラー'}`;
+                    showError(`❌ エラー: ${result.error || '不明なエラー'}`);
                 }
             } catch (error) {
-                statusDiv.style.backgroundColor = '#f7e0e0';
-                statusDiv.textContent = `通信エラー: サーバーに接続できません。`;
+                showError(`通信エラー: サーバーに接続できません。`);
             }
+        }
+
+        function showStatus(message) {
+            statusDiv.textContent = message;
+            statusDiv.style.backgroundColor = '#e9ecef';
+            statusDiv.style.color = 'black';
+        }
+        function showSuccess(message) {
+            statusDiv.textContent = message;
+            statusDiv.style.backgroundColor = '#d4edda';
+            statusDiv.style.color = '#155724';
+        }
+        function showError(message) {
+            statusDiv.textContent = message;
+            statusDiv.style.backgroundColor = '#f8d7da';
+            statusDiv.style.color = '#721c24';
         }
     </script>
 </body>
