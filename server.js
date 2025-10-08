@@ -75,7 +75,7 @@ db.serialize(() => {
             invStmt.run(2, 1, 8, 3, "棚A-2");  // ブレーキパッド
             // B工場
             invStmt.run(1, 2, 20, 5, "ラック1"); // オイルフィルター
-            invStmt.run(3, 2, 5, null, "ラック2");  // バッテリー
+            invStmt.run(3, 2, 5, 2, "ラック2");  // バッテリー
             invStmt.finalize();
 
             console.log("Initial data seeded successfully.");
