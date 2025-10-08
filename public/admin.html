@@ -523,7 +523,8 @@
                 const response = await fetch('/api/admin/inventory', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({n                        shop_id: parseInt(shopId),
+                    body: JSON.stringify({
+                        shop_id: parseInt(shopId),
                         part_id: parseInt(partId),
                         quantity: quantity,
                         min_reorder_level: minReorderLevel,
