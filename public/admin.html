@@ -404,10 +404,10 @@
                     row.insertCell().textContent = shop.name;
                     const actionsCell = row.insertCell();
                     actionsCell.className = 'action-buttons';
-                    actionsCell.innerHTML = '
-                        <button class="btn-secondary" onclick="openEditShopModal(' + shop.id + ')">編集</button>
-                        <button class="btn-danger" onclick="deleteShop(' + shop.id + ', \'删除\')">削除</button>
-                    ';
+                    actionsCell.innerHTML = `
+                        <button class="btn-secondary" onclick="openEditShopModal(${shop.id})">編集</button>
+                        <button class="btn-danger" onclick="deleteShop(${shop.id}, '${shop.name}')">削除</button>
+                    `;
                 });
                 
                 const newUserShopSelect = document.getElementById('new-user-shop-id');
@@ -489,8 +489,7 @@
         }
 
         async function deleteShop(id, name) {
-            if (confirm(`本当に工場「${name}」を删除しますか？
-この工場に所属するユーザーや在庫がある場合は删除できません。`)) {
+            if (confirm(`本当に工場「${name}」を削除しますか？\nこの工場に所属するユーザーや在庫がある場合は削除できません。`)) {
                 try {
                     const response = await fetch(`/api/admin/shops/${id}`, { method: 'DELETE' });
                     const data = await response.json();
@@ -520,10 +519,10 @@
                     row.insertCell().textContent = part.part_name;
                     const actionsCell = row.insertCell();
                     actionsCell.className = 'action-buttons';
-                    actionsCell.innerHTML = '
-                        <button class="btn-secondary" onclick="openEditPartModal(' + part.id + ')">編集</button>
-                        <button class="btn-danger" onclick="deletePart(' + part.id + ', \'' + part.part_name + '\')">削除</button>
-                    ';
+                    actionsCell.innerHTML = `
+                        <button class="btn-secondary" onclick="openEditPartModal(${part.id})">編集</button>
+                        <button class="btn-danger" onclick="deletePart(${part.id}, '${part.part_name}')">削除</button>
+                    `;
                 });
 
                 const inventoryPartSelect = document.getElementById('inventory-part-select');
@@ -544,7 +543,7 @@
             const partNumber = document.getElementById('new-part-number').value;
             const partName = document.getElementById('new-part-name').value;
             if (!partNumber || !partName) {
-                showMessage('add-part-message', '部品番号と部品名を入力してください。', 'error');
+                showMessage('add-part-message', '品番と部品名を入力してください。', 'error');
                 return;
             }
             try {
@@ -554,7 +553,7 @@
                     body: JSON.stringify({ part_number: partNumber, part_name: partName })
                 });
                 if (response.ok) {
-                    showMessage('add-part-message', `部品「${partName}」を述加しました。`, 'success');
+                    showMessage('add-part-message', `部品「${partName}」を追加しました。`, 'success');
                     document.getElementById('new-part-number').value = '';
                     document.getElementById('new-part-name').value = '';
                     loadParts();
@@ -606,8 +605,7 @@
         }
 
         async function deletePart(id, name) {
-            if (confirm(`本当に部品「${name}」を删除しますか？
-この部品の在庫が残っている場合は删除できません。`)) {
+            if (confirm(`本当に部品「${name}」を削除しますか？\nこの部品の在庫が残っている場合は削除できません。`)) {
                 try {
                     const response = await fetch(`/api/admin/parts/${id}`, { method: 'DELETE' });
                     const data = await response.json();
@@ -645,10 +643,10 @@
                     
                     const actionsCell = row.insertCell();
                     actionsCell.className = 'action-buttons';
-                    actionsCell.innerHTML = '
-                        <button class="btn-secondary" onclick="openEditUserModal(' + user.id + ')">編集</button>
-                        <button class="btn-danger" onclick="deleteUser(' + user.id + ', \'' + user.username + '\')">削除</button>
-                    ';
+                    actionsCell.innerHTML = `
+                        <button class="btn-secondary" onclick="openEditUserModal(${user.id})">編集</button>
+                        <button class="btn-danger" onclick="deleteUser(${user.id}, '${user.username}')">削除</button>
+                    `;
                 });
             } catch (error) {
                 showMessage('add-user-message', `ユーザーの読み込みエラー: ${error.message}`, 'error');
@@ -666,7 +664,7 @@
                 return;
             }
             if (role === 'shop_user' && !shopId) {
-                showMessage('add-user-message', '整備工場ユーザーの場合、所属工場を選択戩してください。', 'error');
+                showMessage('add-user-message', '整備工場ユーザーの場合、所属工場を選択してください。', 'error');
                 return;
             }
 
@@ -677,7 +675,7 @@
                     body: JSON.stringify({ username, password, role, shop_id: role === 'shop_user' ? parseInt(shopId) : null })
                 });
                 if (response.ok) {
-                    showMessage('add-user-message', `ユーザー「${username}」を述加しました。`, 'success');
+                    showMessage('add-user-message', `ユーザー「${username}」を追加しました。`, 'success');
                     document.getElementById('new-username').value = '';
                     document.getElementById('new-password').value = '';
                     loadUsers();
@@ -750,10 +748,10 @@
 
         async function deleteUser(userId, username) {
             if (userId === currentUser.id) {
-                alert('自分自身のアカウントは删除できません。');
+                alert('自分自身のアカウントは削除できません。');
                 return;
             }
-            if (confirm(`本当にユーザー「${username}」を删除しますか？`)) {
+            if (confirm(`本当にユーザー「${username}」を削除しますか？`)) {
                 try {
                     const response = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
                     if (response.ok) {
@@ -882,7 +880,7 @@
                     row.insertCell().textContent = item.mechanic_name;
                 });
             } catch (error) {
-                showMessage('auth-status', `使用史の読み込みエラー: ${error.message}`, 'error');
+                showMessage('auth-status', `使用履歴の読み込みエラー: ${error.message}`, 'error');
             }
         }
 
