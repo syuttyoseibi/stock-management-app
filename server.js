@@ -351,6 +351,44 @@ app.post('/api/admin/shops', isAuthenticated, isAdmin, (req, res) => {
     });
 });
 
+// Update a shop
+app.put('/api/admin/shops/:id', isAuthenticated, isAdmin, (req, res) => {
+    const { id } = req.params;
+    const { name } = req.body;
+    if (!name) {
+        return res.status(400).json({ error: 'Shop name is required' });
+    }
+    db.run("UPDATE shops SET name = ? WHERE id = ?", [name, id], function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ message: 'Shop updated successfully' });
+    });
+});
+
+// Delete a shop
+app.delete('/api/admin/shops/:id', isAuthenticated, isAdmin, (req, res) => {
+    const { id } = req.params;
+    // Check for dependencies before deleting
+    db.get("SELECT COUNT(*) AS count FROM users WHERE shop_id = ?", [id], (err, row) => {
+        if (err) { return res.status(500).json({ error: err.message }); }
+        if (row.count > 0) {
+            return res.status(400).json({ error: 'Cannot delete shop: Users are still assigned to it.' });
+        }
+        db.get("SELECT COUNT(*) AS count FROM inventories WHERE shop_id = ?", [id], (err, row) => {
+            if (err) { return res.status(500).json({ error: err.message }); }
+            if (row.count > 0) {
+                return res.status(400).json({ error: 'Cannot delete shop: Inventory is still assigned to it.' });
+            }
+            db.run("DELETE FROM shops WHERE id = ?", [id], function(err) {
+                if (err) { return res.status(500).json({ error: err.message }); }
+                if (this.changes === 0) { return res.status(404).json({ error: 'Shop not found' }); }
+                res.json({ message: 'Shop deleted successfully' });
+            });
+        });
+    });
+});
+
 // --- Part Management (Admin) ---
 app.get('/api/admin/parts', isAuthenticated, isAdmin, (req, res) => {
     db.all("SELECT id, part_number, part_name FROM parts ORDER BY id", [], (err, rows) => {
@@ -371,6 +409,38 @@ app.post('/api/admin/parts', isAuthenticated, isAdmin, (req, res) => {
             return res.status(500).json({ error: err.message });
         }
         res.json({ id: this.lastID, part_number, part_name });
+    });
+});
+
+// Update a part
+app.put('/api/admin/parts/:id', isAuthenticated, isAdmin, (req, res) => {
+    const { id } = req.params;
+    const { part_number, part_name } = req.body;
+    if (!part_number || !part_name) {
+        return res.status(400).json({ error: 'Part number and name are required' });
+    }
+    db.run("UPDATE parts SET part_number = ?, part_name = ? WHERE id = ?", [part_number, part_name, id], function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ message: 'Part updated successfully' });
+    });
+});
+
+// Delete a part
+app.delete('/api/admin/parts/:id', isAuthenticated, isAdmin, (req, res) => {
+    const { id } = req.params;
+    // Check for dependencies
+    db.get("SELECT COUNT(*) AS count FROM inventories WHERE part_id = ?", [id], (err, row) => {
+        if (err) { return res.status(500).json({ error: err.message }); }
+        if (row.count > 0) {
+            return res.status(400).json({ error: 'Cannot delete part: It still exists in some inventories.' });
+        }
+        db.run("DELETE FROM parts WHERE id = ?", [id], function(err) {
+            if (err) { return res.status(500).json({ error: err.message }); }
+            if (this.changes === 0) { return res.status(404).json({ error: 'Part not found' }); }
+            res.json({ message: 'Part deleted successfully' });
+        });
     });
 });
 
