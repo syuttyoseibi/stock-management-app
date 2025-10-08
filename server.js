@@ -112,6 +112,202 @@ db.serialize(() => {
     });
 });
 
-// (API implementations will go here in the next steps)
+// API for Login
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    db.get("SELECT * FROM users WHERE username = ?", [username], (err, user) => {
+        if (err) {
+            return res.status(500).json({ error: 'Server error' });
+        }
+        if (!user) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        bcrypt.compare(password, user.password_hash, (err, result) => {
+            if (result) {
+                // Passwords match
+                req.session.user = {
+                    id: user.id,
+                    username: user.username,
+                    role: user.role,
+                    shop_id: user.shop_id
+                };
+                res.json({ message: 'Login successful', user: req.session.user });
+            } else {
+                // Passwords don't match
+                res.status(401).json({ error: 'Invalid credentials' });
+            }
+        });
+    });
+});
+
+// API for Logout
+app.post('/api/logout', (req, res) => {
+    req.session.destroy(err => {
+        if (err) {
+            return res.status(500).json({ error: 'Could not log out' });
+        }
+        res.clearCookie('connect.sid');
+        res.json({ message: 'Logout successful' });
+    });
+});
+
+// API to check login status
+app.get('/api/auth/status', (req, res) => {
+    if (req.session.user) {
+        res.json({ loggedIn: true, user: req.session.user });
+    } else {
+        res.json({ loggedIn: false });
+    }
+});
+
+// Middleware to protect routes
+function isAuthenticated(req, res, next) {
+    if (req.session.user) {
+        next();
+    } else {
+        res.status(401).json({ error: 'Unauthorized' });
+    }
+}
+
+function isAdmin(req, res, next) {
+    if (req.session.user && req.session.user.role === 'admin') {
+        next();
+    } else {
+        res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+}
+
+function isShopUser(req, res, next) {
+    if (req.session.user && req.session.user.role === 'shop_user' && req.session.user.shop_id) {
+        next();
+    } else {
+        res.status(403).json({ error: 'Forbidden: Shop user access required' });
+    }
+}
+
+// -------------------------------------------------
+// API (ステップ2: 新DB構造対応) - Existing APIs, now protected
+// -------------------------------------------------
+
+// API 1: 全ての工場リストを取得 (Admin only, or for shop selection on login page)
+app.get('/api/shops', isAuthenticated, (req, res) => { // Protected
+    // If admin, show all shops. If shop_user, show only their shop.
+    if (req.session.user.role === 'admin') {
+        db.all("SELECT id, name FROM shops ORDER BY name", [], (err, rows) => {
+            if (err) {
+                res.status(500).json({ error: err.message });
+                return;
+            }
+            res.json(rows);
+        });
+    } else if (req.session.user.role === 'shop_user' && req.session.user.shop_id) {
+        db.get("SELECT id, name FROM shops WHERE id = ?", [req.session.user.shop_id], (err, row) => {
+            if (err) {
+                res.status(500).json({ error: err.message });
+                return;
+            }
+            res.json(row ? [row] : []); // Return as array for consistency
+        });
+    } else {
+        res.status(403).json({ error: 'Forbidden: Invalid role or shop_id' });
+    }
+});
+
+// API 2: 指定された工場の在庫部品リストを取得 (Protected, shop_user can only see their own shop)
+app.get('/api/shops/:shopId/inventory', isAuthenticated, (req, res) => { // Protected
+    const { shopId } = req.params;
+
+    // Shop users can only view their own shop's inventory
+    if (req.session.user.role === 'shop_user' && parseInt(shopId) !== req.session.user.shop_id) {
+        return res.status(403).json({ error: 'Forbidden: You can only view your own shop\'s inventory' });
+    }
+
+    const sql = `
+        SELECT
+            p.id,
+            p.part_number,
+            p.part_name,
+            i.quantity,
+            i.location_info
+        FROM parts p
+        JOIN inventories i ON p.id = i.part_id
+        WHERE i.shop_id = ? AND i.quantity > 0
+        ORDER BY p.part_name;
+    `;
+    db.all(sql, [shopId], (err, rows) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json(rows);
+    });
+});
+
+// API 3: 部品の使用を記録 (Protected, shop_user can only use parts from their own shop)
+app.post('/api/use-part', isAuthenticated, (req, res) => { // Protected
+    const { part_id, shop_id, mechanic_name } = req.body;
+
+    if (!part_id || !shop_id) {
+        return res.status(400).json({ error: "部品IDと工場IDは必須です" });
+    }
+
+    // Shop users can only use parts from their own shop
+    if (req.session.user.role === 'shop_user' && parseInt(shop_id) !== req.session.user.shop_id) {
+        return res.status(403).json({ error: 'Forbidden: You can only use parts from your own shop' });
+    }
+
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION;");
+
+        // 在庫を1つ減らす
+        const updateQuery = "UPDATE inventories SET quantity = quantity - 1 WHERE part_id = ? AND shop_id = ? AND quantity > 0";
+        db.run(updateQuery, [part_id, shop_id], function(err) {
+            if (err) {
+                db.run("ROLLBACK;");
+                return res.status(500).json({ error: "在庫更新エラー: " + err.message });
+            }
+            if (this.changes === 0) {
+                db.run("ROLLBACK;");
+                return res.status(400).json({ error: "在庫がないか、指定された部品/工場が見つかりません。" });
+            }
+
+            // 使用履歴をインサート
+            const historyQuery = "INSERT INTO usage_history (part_id, shop_id, usage_time, mechanic_name) VALUES (?, ?, datetime('now', 'localtime'), ?)";
+            db.run(historyQuery, [part_id, shop_id, mechanic_name || '不明'], function(err) {
+                if (err) {
+                    db.run("ROLLBACK;");
+                    return res.status(500).json({ error: "履歴記録エラー: " + err.message });
+                }
+
+                // 更新後の在庫数と発注点を確認
+                const selectQuery = `
+                    SELECT i.quantity, i.min_reorder_level, p.part_name
+                    FROM inventories i
+                    JOIN parts p ON i.part_id = p.id
+                    WHERE i.part_id = ? AND i.shop_id = ?
+                `;
+                db.get(selectQuery, [part_id, shop_id], (err, row) => {
+                    if (err) {
+                        console.error("Could not retrieve stock level for reorder alert:", err.message);
+                        db.run("COMMIT;");
+                        return res.json({ message: "使用記録が完了しました。", stock_left: "不明" });
+                    }
+
+                    if (row && row.quantity < row.min_reorder_level) {
+                        console.log(`!!! 再発注アラート: [工場ID: ${shop_id}] ${row.part_name} が最低発注レベル (${row.min_reorder_level})を下回りました。現在の在庫: ${row.quantity}`);
+                    }
+                    db.run("COMMIT;");
+                    res.json({ message: "使用記録が完了しました。", stock_left: row.quantity });
+                });
+            });
+        });
+    });
+});
+
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
