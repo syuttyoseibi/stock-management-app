@@ -322,6 +322,37 @@ app.post('/api/use-part', isAuthenticated, (req, res) => { // Protected
     });
 });
 
+// API 4: Get usage history for the logged-in shop user
+app.get('/api/usage-history', isAuthenticated, isShopUser, (req, res) => {
+    const shop_id = req.session.user.shop_id;
+    let { month } = req.query; // month should be in 'YYYY-MM' format
+
+    // Default to the current month if not provided
+    if (!month) {
+        const now = new Date();
+        const year = now.getFullYear();
+        const monthNum = now.getMonth() + 1;
+        month = `${year}-${monthNum.toString().padStart(2, '0')}`;
+    }
+
+    const sql = `
+        SELECT p.part_number, p.part_name, h.usage_time, h.mechanic_name
+        FROM usage_history h
+        JOIN parts p ON h.part_id = p.id
+        WHERE h.shop_id = ?
+        AND STRFTIME('%Y-%m', h.usage_time) = ?
+        ORDER BY h.usage_time DESC
+    `;
+
+    db.all(sql, [shop_id, month], (err, rows) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json(rows);
+    });
+});
+
 
 
 // -------------------------------------------------
@@ -594,14 +625,41 @@ app.post('/api/admin/inventory', isAuthenticated, isAdmin, (req, res) => {
 
 // --- Reports (Admin) ---
 app.get('/api/admin/all-usage-history', isAuthenticated, isAdmin, (req, res) => {
-    const sql = `
+    const { startDate, endDate, shopId, partId } = req.query;
+
+    let sql = `
         SELECT s.name AS shop_name, p.part_number, p.part_name, h.usage_time, h.mechanic_name
         FROM usage_history h
         JOIN shops s ON h.shop_id = s.id
         JOIN parts p ON h.part_id = p.id
-        ORDER BY h.usage_time DESC
     `;
-    db.all(sql, [], (err, rows) => {
+    const whereClauses = [];
+    const params = [];
+
+    if (startDate) {
+        whereClauses.push("h.usage_time >= ?");
+        params.push(startDate);
+    }
+    if (endDate) {
+        whereClauses.push("h.usage_time <= ?");
+        params.push(endDate + ' 23:59:59');
+    }
+    if (shopId) {
+        whereClauses.push("h.shop_id = ?");
+        params.push(shopId);
+    }
+    if (partId) {
+        whereClauses.push("h.part_id = ?");
+        params.push(partId);
+    }
+
+    if (whereClauses.length > 0) {
+        sql += " WHERE " + whereClauses.join(" AND ");
+    }
+
+    sql += " ORDER BY h.usage_time DESC";
+
+    db.all(sql, params, (err, rows) => {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
