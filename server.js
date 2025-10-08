@@ -76,15 +76,15 @@ db.serialize(() => {
             // (shops, parts, inventories seed logic as before)
             const shops = ["A整備工場", "B整備工場"];
             const parts = [
-                { number: "OF-001", name: "オイルフィルター X10" },
-                { number: "BP-002", name: "ブレーキパッド R20" },
-                { number: "BT-003", name: "バッテリー V60" }
+                { part_number: "OF-001", part_name: "オイルフィルター X10" },
+                { part_number: "BP-002", part_name: "ブレーキパッド R20" },
+                { part_number: "BT-003", part_name: "バッテリー V60" }
             ];
             const shopStmt = db.prepare("INSERT INTO shops (name) VALUES (?)");
             shops.forEach(shop => shopStmt.run(shop));
             shopStmt.finalize();
             const partStmt = db.prepare("INSERT INTO parts (part_number, part_name) VALUES (?, ?)");
-            parts.forEach(p => partStmt.run(p.number, p.name));
+            parts.forEach(p => partStmt.run(p.part_number, p.part_name));
             partStmt.finalize();
             const invStmt = db.prepare("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)");
             invStmt.run(1, 1, 15, 5, "棚A-1");
