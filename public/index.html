@@ -7,82 +7,98 @@
     <title>委託在庫 使用記録</title>
     <style>
         body { font-family: sans-serif; padding: 20px; background-color: #f4f4f4; max-width: 800px; margin: 0 auto; }
-        h1 { text-align: center; }
+        h1 { text-align: center; color: #007bff; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background-color: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header h1 { margin: 0; }
+        .header div { display: flex; align-items: center; }
+        .user-info { font-weight: bold; margin-right: 15px; }
+        .header button { padding: 8px 15px; background-color: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .header button:hover { background-color: #c82333; }
         .control-group { margin-bottom: 20px; }
         label { font-weight: bold; margin-right: 10px; }
-        select, input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
+        input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; }
         .part-item { background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
-        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
-        button:disabled { background-color: #cccccc; }
-        button:active { background-color: #0056b3; }
+        button.use-button { padding: 10px 15px; background-color: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        button.use-button:disabled { background-color: #cccccc; }
+        button.use-button:active { background-color: #218838; }
         #status { margin-top: 20px; padding: 10px; background-color: #e9ecef; border-radius: 5px; text-align: center; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h1>委託在庫 使用記録</h1>
-
-    <div class="control-group">
-        <label for="shop-select">1. 工場を選択してください</label>
-        <select id="shop-select" onchange="onShopSelect()">
-            <option value="">---</option>
-        </select>
+    <div class="header">
+        <h1>委託在庫 使用記録</h1>
+        <div>
+            <span class="user-info">ようこそ、<span id="username-display"></span>さん！ (工場: <span id="shop-name-display"></span>)</span>
+            <button onclick="logout()">ログアウト</button>
+        </div>
     </div>
 
     <div class="control-group">
-        <label for="mechanic_name">2. 整備士名（オプション）</label>
+        <label for="mechanic_name">整備士名（オプション）</label>
         <input type="text" id="mechanic_name" placeholder="名前を入力...">
     </div>
 
     <hr>
 
-    <div id="part-list-container" style="display: none;">
-        <h3>3. 使用した部品を選択してください</h3>
-        <div id="part-list"></div>
-    </div>
+    <h3>使用した部品を選択してください</h3>
+    <div id="part-list"></div>
 
-    <div id="status">工場を選択してください</div>
+    <div id="status"></div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', loadShops);
+        document.addEventListener('DOMContentLoaded', checkAuthAndLoadInventory);
 
-        const shopSelect = document.getElementById('shop-select');
         const partListDiv = document.getElementById('part-list');
-        const partListContainer = document.getElementById('part-list-container');
         const statusDiv = document.getElementById('status');
         const mechanicInput = document.getElementById('mechanic_name');
+        const usernameDisplay = document.getElementById('username-display');
+        const shopNameDisplay = document.getElementById('shop-name-display');
 
-        let currentShopId = null;
+        let currentUser = null;
 
-        // 最初に工場リストを読み込む
-        async function loadShops() {
+        async function checkAuthAndLoadInventory() {
             try {
-                const response = await fetch('/api/shops');
-                if (!response.ok) throw new Error('工場の取得に失敗しました');
-                const shops = await response.json();
+                const response = await fetch('/api/auth/status');
+                const data = await response.json();
 
-                shops.forEach(shop => {
-                    const option = document.createElement('option');
-                    option.value = shop.id;
-                    option.textContent = shop.name;
-                    shopSelect.appendChild(option);
-                });
+                if (data.loggedIn && data.user.role === 'shop_user' && data.user.shop_id) {
+                    currentUser = data.user;
+                    usernameDisplay.textContent = currentUser.username;
+                    // Fetch shop name
+                    const shopResponse = await fetch('/api/shops'); // This API now returns only the user's shop for shop_users
+                    const shopData = await shopResponse.json();
+                    if (shopData && shopData.length > 0) {
+                        shopNameDisplay.textContent = shopData[0].name;
+                    }
+
+                    loadInventory(currentUser.shop_id);
+                    showStatus('在庫を読み込みました。');
+                } else {
+                    showError('整備工場ユーザーとしてログインしていません。ログインページに戻ります。');
+                    setTimeout(() => {
+                        window.location.href = '/login.html';
+                    }, 2000);
+                }
             } catch (error) {
-                showError(error.message);
+                showError('認証状態の確認中にエラーが発生しました。ログインページに戻ります。');
+                console.error('Auth check error:', error);
+                setTimeout(() => {
+                    window.location.href = '/login.html';
+                }, 2000);
             }
         }
 
-        // 工場が選択されたときの処理
-        function onShopSelect() {
-            currentShopId = shopSelect.value;
-            if (currentShopId) {
-                partListContainer.style.display = 'block';
-                loadInventory(currentShopId);
-                statusDiv.textContent = `${shopSelect.options[shopSelect.selectedIndex].text} の在庫を読み込みました。`;
-                statusDiv.style.backgroundColor = '#e9ecef';
-            } else {
-                partListContainer.style.display = 'none';
-                partListDiv.innerHTML = '';
-                statusDiv.textContent = '工場を選択してください';
+        async function logout() {
+            try {
+                const response = await fetch('/api/logout', { method: 'POST' });
+                if (response.ok) {
+                    window.location.href = '/login.html';
+                } else {
+                    alert('ログアウトに失敗しました。');
+                }
+            } catch (error) {
+                alert('通信エラーによりログアウトできませんでした。');
+                console.error('Logout error:', error);
             }
         }
 
@@ -109,8 +125,13 @@
                     item.appendChild(info);
 
                     const useButton = document.createElement('button');
+                    useButton.className = 'use-button';
                     useButton.textContent = '使用';
                     useButton.onclick = () => usePart(part.id, part.part_name);
+                    if (part.quantity <= 0) {
+                        useButton.disabled = true;
+                        useButton.textContent = '在庫なし';
+                    }
                     item.appendChild(useButton);
 
                     partListDiv.appendChild(item);
@@ -122,8 +143,8 @@
 
         // 部品使用を記録する
         async function usePart(partId, partName) {
-            if (!currentShopId) {
-                showError('先に工場を選択してください。');
+            if (!currentUser || !currentUser.shop_id) {
+                showError('ログイン情報が不正です。再ログインしてください。');
                 return;
             }
             const mechanic_name = mechanicInput.value;
@@ -135,7 +156,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         part_id: partId,
-                        shop_id: currentShopId,
+                        shop_id: currentUser.shop_id,
                         mechanic_name: mechanic_name
                     })
                 });
@@ -143,7 +164,7 @@
 
                 if (response.ok) {
                     showSuccess(`✅ ${partName} の使用を記録しました。残り在庫: ${result.stock_left}`);
-                    loadInventory(currentShopId); // 在庫リストを再読み込み
+                    loadInventory(currentUser.shop_id); // 在庫リストを再読み込み
                 } else {
                     showError(`❌ エラー: ${result.error || '不明なエラー'}`);
                 }

@@ -5,15 +5,58 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>管理者ダッシュボード - 委託在庫管理</title>
     <style>
-        body { font-family: sans-serif; padding: 20px; background-color: #f4f4f4; max-width: 1000px; margin: 0 auto; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .header h1 { margin: 0; }
+        body { font-family: sans-serif; padding: 20px; background-color: #f4f4f4; max-width: 1200px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; background-color: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header h1 { margin: 0; color: #007bff; }
+        .header div { display: flex; align-items: center; }
+        .user-info { font-weight: bold; margin-right: 15px; }
         .header button { padding: 8px 15px; background-color: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer; }
         .header button:hover { background-color: #c82333; }
-        .user-info { font-weight: bold; }
         .section { background: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .section h2 { margin-top: 0; color: #007bff; }
-        #status-message { margin-top: 20px; padding: 10px; background-color: #e9ecef; border-radius: 5px; text-align: center; font-weight: bold; }
+        .section h2 { margin-top: 0; color: #007bff; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], input[type="number"], input[type="password"], select {
+            width: calc(100% - 22px); /* Adjust for padding and border */
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        .btn-primary {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        .btn-primary:hover { background-color: #0056b3; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .error-message { color: red; margin-top: 10px; }
+        .success-message { color: green; margin-top: 10px; }
+        .tab-buttons { margin-bottom: 20px; }
+        .tab-buttons button {
+            background-color: #e9ecef;
+            border: 1px solid #ddd;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 5px 5px 0 0;
+            margin-right: 5px;
+        }
+        .tab-buttons button.active {
+            background-color: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        .tab-content { border: 1px solid #ddd; border-top: none; padding: 20px; background-color: white; border-radius: 0 0 8px 8px; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
@@ -27,35 +70,192 @@
 
     <div id="auth-status"></div>
 
-    <div class="section">
-        <h2>工場管理</h2>
-        <p>ここに工場の追加・編集・削除機能が入ります。</p>
+    <div class="tab-buttons">
+        <button class="active" onclick="showTab('shop-management', this)">工場管理</button>
+        <button onclick="showTab('part-management', this)">部品マスタ管理</button>
+        <button onclick="showTab('user-management', this)">ユーザー管理</button>
+        <button onclick="showTab('inventory-management', this)">在庫管理</button>
+        <button onclick="showTab('reports', this)">レポート</button>
     </div>
 
-    <div class="section">
-        <h2>部品マスタ管理</h2>
-        <p>ここに部品の追加・編集・削除機能が入ります。</p>
+    <div id="shop-management" class="tab-content">
+        <div class="section">
+            <h2>工場管理</h2>
+            <h3>新しい工場を追加</h3>
+            <div class="form-group">
+                <label for="new-shop-name">工場名:</label>
+                <input type="text" id="new-shop-name" placeholder="例: C整備工場">
+            </div>
+            <button class="btn-primary" onclick="addShop()">工場を追加</button>
+            <p id="add-shop-message" class="success-message"></p>
+
+            <h3>登録済み工場リスト</h3>
+            <table id="shops-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>工場名</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Shops will be loaded here -->
+                </tbody>
+            </table>
+        </div>
     </div>
 
-    <div class="section">
-        <h2>在庫管理</h2>
-        <p>ここに各工場の在庫数修正機能が入ります。</p>
+    <div id="part-management" class="tab-content hidden">
+        <div class="section">
+            <h2>部品マスタ管理</h2>
+            <h3>新しい部品を追加</h3>
+            <div class="form-group">
+                <label for="new-part-number">品番:</label>
+                <input type="text" id="new-part-number" placeholder="例: OF-004">
+            </div>
+            <div class="form-group">
+                <label for="new-part-name">部品名:</label>
+                <input type="text" id="new-part-name" placeholder="例: オイルフィルター Y30">
+            </div>
+            <button class="btn-primary" onclick="addPart()">部品を追加</button>
+            <p id="add-part-message" class="success-message"></p>
+
+            <h3>登録済み部品リスト</h3>
+            <table id="parts-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>品番</th>
+                        <th>部品名</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Parts will be loaded here -->
+                </tbody>
+            </table>
+        </div>
     </div>
 
-    <div class="section">
-        <h2>ユーザー管理</h2>
-        <p>ここに整備工場の従業員登録・管理機能が入ります。</p>
+    <div id="user-management" class="tab-content hidden">
+        <div class="section">
+            <h2>ユーザー管理</h2>
+            <h3>新しいユーザーを追加</h3>
+            <div class="form-group">
+                <label for="new-username">ユーザー名:</label>
+                <input type="text" id="new-username" placeholder="例: shopuser1">
+            </div>
+            <div class="form-group">
+                <label for="new-password">パスワード:</label>
+                <input type="password" id="new-password" placeholder="パスワード">
+            </div>
+            <div class="form-group">
+                <label for="new-user-role">ロール:</label>
+                <select id="new-user-role" onchange="toggleShopSelectForUser()">
+                    <option value="admin">管理者</option>
+                    <option value="shop_user">整備工場ユーザー</option>
+                </select>
+            </div>
+            <div class="form-group" id="new-user-shop-group" style="display: none;">
+                <label for="new-user-shop-id">所属工場:</label>
+                <select id="new-user-shop-id">
+                    <!-- Shops will be loaded here -->
+                </select>
+            </div>
+            <button class="btn-primary" onclick="addUser()">ユーザーを追加</button>
+            <p id="add-user-message" class="success-message"></p>
+
+            <h3>登録済みユーザーリスト</h3>
+            <table id="users-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>ユーザー名</th>
+                        <th>ロール</th>
+                        <th>工場ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Users will be loaded here -->
+                </tbody>
+            </table>
+        </div>
     </div>
 
-    <div class="section">
-        <h2>使用履歴レポート</h2>
-        <p>ここに全工場の使用履歴レポート機能が入ります。</p>
+    <div id="inventory-management" class="tab-content hidden">
+        <div class="section">
+            <h2>在庫管理</h2>
+            <h3>工場の在庫を更新</h3>
+            <div class="form-group">
+                <label for="inventory-shop-select">工場:</label>
+                <select id="inventory-shop-select">
+                    <!-- Shops will be loaded here -->
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="inventory-part-select">部品:</label>
+                <select id="inventory-part-select">
+                    <!-- Parts will be loaded here -->
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="inventory-quantity">数量:</label>
+                <input type="number" id="inventory-quantity" min="0" value="0">
+            </div>
+            <div class="form-group">
+                <label for="inventory-min-reorder-level">最低発注レベル:</label>
+                <input type="number" id="inventory-min-reorder-level" min="0" value="0">
+            </div>
+            <div class="form-group">
+                <label for="inventory-location-info">保管場所情報:</label>
+                <input type="text" id="inventory-location-info" placeholder="例: 棚A-3">
+            </div>
+            <button class="btn-primary" onclick="updateInventory()">在庫を更新</button>
+            <p id="update-inventory-message" class="success-message"></p>
+
+            <h3>全工場の在庫状況</h3>
+            <table id="all-inventory-table">
+                <thead>
+                    <tr>
+                        <th>工場名</th>
+                        <th>品番</th>
+                        <th>部品名</th>
+                        <th>数量</th>
+                        <th>最低発注レベル</th>
+                        <th>保管場所</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- All inventory will be loaded here -->
+                </tbody>
+            </table>
+        </div>
     </div>
 
-    <p id="status-message"></p>
+    <div id="reports" class="tab-content hidden">
+        <div class="section">
+            <h2>使用履歴レポート</h2>
+            <table id="usage-history-table">
+                <thead>
+                    <tr>
+                        <th>工場名</th>
+                        <th>品番</th>
+                        <th>部品名</th>
+                        <th>使用日時</th>
+                        <th>整備士名</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Usage history will be loaded here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', checkAuthAndLoadAdmin);
+
+        let allShops = [];
+        let allParts = [];
+        let allUsers = [];
 
         async function checkAuthAndLoadAdmin() {
             const statusMessage = document.getElementById('status-message');
@@ -69,6 +269,7 @@
                     statusMessage.textContent = '管理者としてログイン中。';
                     statusMessage.style.backgroundColor = '#d4edda';
                     statusMessage.style.color = '#155724';
+                    loadAllAdminData(); // Load all data for admin
                 } else {
                     statusMessage.textContent = '管理者権限がありません。ログインページに戻ります。';
                     statusMessage.style.backgroundColor = '#f8d7da';
@@ -100,6 +301,294 @@
                 alert('通信エラーによりログアウトできませんでした。');
                 console.error('Logout error:', error);
             }
+        }
+
+        function showTab(tabId, element) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.add('hidden');
+            });
+            document.getElementById(tabId).classList.remove('hidden');
+
+            document.querySelectorAll('.tab-buttons button').forEach(button => {
+                button.classList.remove('active');
+            });
+            element.classList.add('active');
+        }
+
+        async function loadAllAdminData() {
+            await loadShops();
+            await loadParts();
+            await loadUsers();
+            await loadAllInventory();
+            await loadUsageHistory();
+        }
+
+        // --- Shop Management ---
+        async function loadShops() {
+            try {
+                const response = await fetch('/api/admin/shops');
+                if (!response.ok) throw new Error('工場の取得に失敗しました');
+                allShops = await response.json();
+                const tableBody = document.querySelector('#shops-table tbody');
+                tableBody.innerHTML = '';
+                allShops.forEach(shop => {
+                    const row = tableBody.insertRow();
+                    row.insertCell().textContent = shop.id;
+                    row.insertCell().textContent = shop.name;
+                });
+
+                // Populate shop selects
+                const userShopSelect = document.getElementById('new-user-shop-id');
+                const inventoryShopSelect = document.getElementById('inventory-shop-select');
+                userShopSelect.innerHTML = '';
+                inventoryShopSelect.innerHTML = '';
+                allShops.forEach(shop => {
+                    const option1 = document.createElement('option');
+                    option1.value = shop.id;
+                    option1.textContent = shop.name;
+                    userShopSelect.appendChild(option1);
+
+                    const option2 = document.createElement('option');
+                    option2.value = shop.id;
+                    option2.textContent = shop.name;
+                    inventoryShopSelect.appendChild(option2);
+                });
+
+            } catch (error) {
+                showMessage('add-shop-message', `工場の読み込みエラー: ${error.message}`, 'error');
+            }
+        }
+
+        async function addShop() {
+            const shopName = document.getElementById('new-shop-name').value;
+            if (!shopName) {
+                showMessage('add-shop-message', '工場名を入力してください。', 'error');
+                return;
+            }
+            try {
+                const response = await fetch('/api/admin/shops', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: shopName })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('add-shop-message', `工場「${shopName}」を追加しました。`, 'success');
+                    document.getElementById('new-shop-name').value = '';
+                    loadShops();
+                } else {
+                    showMessage('add-shop-message', `エラー: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showMessage('add-shop-message', `通信エラー: ${error.message}`, 'error');
+            }
+        }
+
+        // --- Part Management ---
+        async function loadParts() {
+            try {
+                const response = await fetch('/api/admin/parts');
+                if (!response.ok) throw new Error('部品の取得に失敗しました');
+                allParts = await response.json();
+                const tableBody = document.querySelector('#parts-table tbody');
+                tableBody.innerHTML = '';
+                allParts.forEach(part => {
+                    const row = tableBody.insertRow();
+                    row.insertCell().textContent = part.id;
+                    row.insertCell().textContent = part.part_number;
+                    row.insertCell().textContent = part.part_name;
+                });
+
+                // Populate part selects
+                const inventoryPartSelect = document.getElementById('inventory-part-select');
+                inventoryPartSelect.innerHTML = '';
+                allParts.forEach(part => {
+                    const option = document.createElement('option');
+                    option.value = part.id;
+                    option.textContent = `${part.part_name} (${part.part_number})`;
+                    inventoryPartSelect.appendChild(option);
+                });
+
+            } catch (error) {
+                showMessage('add-part-message', `部品の読み込みエラー: ${error.message}`, 'error');
+            }
+        }
+
+        async function addPart() {
+            const partNumber = document.getElementById('new-part-number').value;
+            const partName = document.getElementById('new-part-name').value;
+            if (!partNumber || !partName) {
+                showMessage('add-part-message', '品番と部品名を入力してください。', 'error');
+                return;
+            }
+            try {
+                const response = await fetch('/api/admin/parts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ part_number: partNumber, part_name: partName })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('add-part-message', `部品「${partName}」を追加しました。`, 'success');
+                    document.getElementById('new-part-number').value = '';
+                    document.getElementById('new-part-name').value = '';
+                    loadParts();
+                } else {
+                    showMessage('add-part-message', `エラー: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showMessage('add-part-message', `通信エラー: ${error.message}`, 'error');
+            }
+        }
+
+        // --- User Management ---
+        function toggleShopSelectForUser() {
+            const roleSelect = document.getElementById('new-user-role');
+            const shopGroup = document.getElementById('new-user-shop-group');
+            if (roleSelect.value === 'shop_user') {
+                shopGroup.style.display = 'block';
+            } else {
+                shopGroup.style.display = 'none';
+            }
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/admin/users');
+                if (!response.ok) throw new Error('ユーザーの取得に失敗しました');
+                allUsers = await response.json();
+                const tableBody = document.querySelector('#users-table tbody');
+                tableBody.innerHTML = '';
+                allUsers.forEach(user => {
+                    const row = tableBody.insertRow();
+                    row.insertCell().textContent = user.id;
+                    row.insertCell().textContent = user.username;
+                    row.insertCell().textContent = user.role;
+                    row.insertCell().textContent = user.shop_id ? allShops.find(s => s.id === user.shop_id)?.name || user.shop_id : 'N/A';
+                });
+            } catch (error) {
+                showMessage('add-user-message', `ユーザーの読み込みエラー: ${error.message}`, 'error');
+            }
+        }
+
+        async function addUser() {
+            const username = document.getElementById('new-username').value;
+            const password = document.getElementById('new-password').value;
+            const role = document.getElementById('new-user-role').value;
+            const shopId = document.getElementById('new-user-shop-id').value;
+
+            if (!username || !password || !role) {
+                showMessage('add-user-message', 'ユーザー名、パスワード、ロールは必須です。', 'error');
+                return;
+            }
+            if (role === 'shop_user' && !shopId) {
+                showMessage('add-user-message', '整備工場ユーザーの場合、所属工場を選択してください。', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password, role, shop_id: role === 'shop_user' ? parseInt(shopId) : null })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('add-user-message', `ユーザー「${username}」を追加しました。`, 'success');
+                    document.getElementById('new-username').value = '';
+                    document.getElementById('new-password').value = '';
+                    loadUsers();
+                } else {
+                    showMessage('add-user-message', `エラー: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showMessage('add-user-message', `通信エラー: ${error.message}`, 'error');
+            }
+        }
+
+        // --- Inventory Management ---
+        async function updateInventory() {
+            const shopId = document.getElementById('inventory-shop-select').value;
+            const partId = document.getElementById('inventory-part-select').value;
+            const quantity = parseInt(document.getElementById('inventory-quantity').value);
+            const minReorderLevel = parseInt(document.getElementById('inventory-min-reorder-level').value);
+            const locationInfo = document.getElementById('inventory-location-info').value;
+
+            if (!shopId || !partId || isNaN(quantity) || isNaN(minReorderLevel)) {
+                showMessage('update-inventory-message', '工場、部品、数量、最低発注レベルは必須です。', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/inventory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({n                        shop_id: parseInt(shopId),
+                        part_id: parseInt(partId),
+                        quantity: quantity,
+                        min_reorder_level: minReorderLevel,
+                        location_info: locationInfo
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    showMessage('update-inventory-message', `在庫を更新しました。`, 'success');
+                    loadAllInventory();
+                } else {
+                    showMessage('update-inventory-message', `エラー: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showMessage('update-inventory-message', `通信エラー: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadAllInventory() {
+            try {
+                const response = await fetch('/api/admin/all-inventory');
+                if (!response.ok) throw new Error('全在庫の取得に失敗しました');
+                const inventory = await response.json();
+                const tableBody = document.querySelector('#all-inventory-table tbody');
+                tableBody.innerHTML = '';
+                inventory.forEach(item => {
+                    const row = tableBody.insertRow();
+                    row.insertCell().textContent = item.shop_name;
+                    row.insertCell().textContent = item.part_number;
+                    row.insertCell().textContent = item.part_name;
+                    row.insertCell().textContent = item.quantity;
+                    row.insertCell().textContent = item.min_reorder_level;
+                    row.insertCell().textContent = item.location_info;
+                });
+            } catch (error) {
+                showMessage('update-inventory-message', `全在庫の読み込みエラー: ${error.message}`, 'error');
+            }
+        }
+
+        // --- Reports ---
+        async function loadUsageHistory() {
+            try {
+                const response = await fetch('/api/admin/all-usage-history');
+                if (!response.ok) throw new Error('使用履歴の取得に失敗しました');
+                const history = await response.json();
+                const tableBody = document.querySelector('#usage-history-table tbody');
+                tableBody.innerHTML = '';
+                history.forEach(item => {
+                    const row = tableBody.insertRow();
+                    row.insertCell().textContent = item.shop_name;
+                    row.insertCell().textContent = item.part_number;
+                    row.insertCell().textContent = item.part_name;
+                    row.insertCell().textContent = new Date(item.usage_time).toLocaleString();
+                    row.insertCell().textContent = item.mechanic_name;
+                });
+            } catch (error) {
+                showMessage('status-message', `使用履歴の読み込みエラー: ${error.message}`, 'error');
+            }
+        }
+
+        function showMessage(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = type === 'success' ? 'success-message' : 'error-message';
+            setTimeout(() => { element.textContent = ''; }, 5000);
         }
     </script>
 </body>
