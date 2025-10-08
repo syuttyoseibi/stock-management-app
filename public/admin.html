@@ -73,7 +73,10 @@
         <button class="active" onclick="showTab('shop-management', this)">工場管理</button>
         <button onclick="showTab('part-management', this)">部品マスタ管理</button>
         <button onclick="showTab('user-management', this)">ユーザー管理</button>
+        <button onclick="showTab('category-management', this)">カテゴリー管理</button>
         <button onclick="showTab('inventory-management', this)">在庫管理</button>
+        <button onclick="showTab('order-management', this)">発注管理</button>
+        <button onclick="showTab('stocktake-management', this)">棚卸し</button>
         <button onclick="showTab('reports', this)">レポート</button>
     </div>
 
@@ -107,11 +110,29 @@
                 <label for="new-part-name">部品名:</label>
                 <input type="text" id="new-part-name" placeholder="例: オイルフィルター Y30">
             </div>
+            <div class="form-group">
+                <label for="new-part-category">カテゴリー:</label>
+                <select id="new-part-category"></select>
+            </div>
             <button class="btn-primary" onclick="addPart()">部品を追加</button>
             <p id="add-part-message" class="success-message"></p>
-            <h3>登録済み部品リスト</h3>
+
+            <hr style="margin: 30px 0;">
+
+            <h3>CSVから部品を一括登録</h3>
+            <div class="form-group">
+                <label for="csv-file-input">CSVファイル (品番, 部品名, カテゴリー名):</label>
+                <input type="file" id="csv-file-input" accept=".csv">
+            </div>
+            <button class="btn-primary" onclick="importPartsCSV()">インポート実行</button>
+            <p id="import-parts-message"></p>
+
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>登録済み部品リスト</h3>
+                <button class="btn-secondary" onclick="window.location.href='/api/admin/parts/csv'">CSVエクスポート</button>
+            </div>
             <table id="parts-table">
-                <thead><tr><th>ID</th><th>品番</th><th>部品名</th><th>操作</th></tr></thead>
+                <thead><tr><th>ID</th><th>品番</th><th>部品名</th><th>カテゴリー</th><th>操作</th></tr></thead>
                 <tbody></tbody>
             </table>
         </div>
@@ -150,6 +171,24 @@
         </div>
     </div>
 
+    <div id="category-management" class="tab-content hidden">
+        <div class="section">
+            <h2>カテゴリー管理</h2>
+            <h3>新しいカテゴリーを追加</h3>
+            <div class="form-group">
+                <label for="new-category-name">カテゴリー名:</label>
+                <input type="text" id="new-category-name" placeholder="例: エンジンオイル">
+            </div>
+            <button class="btn-primary" onclick="addCategory()">カテゴリーを追加</button>
+            <p id="add-category-message" class="success-message"></p>
+            <h3>登録済みカテゴリーリスト</h3>
+            <table id="categories-table">
+                <thead><tr><th>ID</th><th>カテゴリー名</th><th>操作</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
     <div id="inventory-management" class="tab-content hidden">
         <div class="section">
             <h2>在庫管理</h2>
@@ -177,11 +216,81 @@
             </div>
             <button class="btn-primary" onclick="updateInventory()">在庫を更新</button>
             <p id="update-inventory-message" class="success-message"></p>
+
+            <hr style="margin: 30px 0;">
+
+            <h3>在庫情報のCSVインポート</h3>
+            <div class="form-group">
+                <label for="inventory-csv-input">CSVファイル (品番,工場名,数量,最低発注レベル,保管場所):</label>
+                <input type="file" id="inventory-csv-input" accept=".csv">
+            </div>
+            <button class="btn-primary" onclick="importInventoryCSV()">インポート実行</button>
+            <p id="import-inventory-message"></p>
+
             <h3>全工場の在庫状況</h3>
+            <div class="filter-section">
+                <div class="filter-group">
+                    <label for="inv-filter-shop">工場で絞り込み:</label>
+                    <select id="inv-filter-shop" onchange="filterAllInventory()"><option value="">すべて</option></select>
+                </div>
+                <div class="filter-group">
+                    <label for="inv-filter-part">部品名/品番で絞り込み:</label>
+                    <input type="text" id="inv-filter-part" oninput="filterAllInventory()" placeholder="部品名または品番を入力...">
+                </div>
+            </div>
             <table id="all-inventory-table">
                 <thead><tr><th>工場名</th><th>品番</th><th>部品名</th><th>数量</th><th>最低発注レベル</th><th>保管場所</th><th>操作</th></tr></thead>
                 <tbody></tbody>
             </table>
+        </div>
+    </div>
+
+    <div id="order-management" class="tab-content hidden">
+        <div class="section">
+            <h2>発注管理</h2>
+            <h3>発注が必要な部品リスト</h3>
+            <button class="btn-secondary" onclick="window.location.href='/api/admin/reorder-list/csv'" style="margin-bottom: 15px;">CSVエクスポート</button>
+            <table id="reorder-list-table">
+                <thead>
+                    <tr>
+                        <th>工場名</th>
+                        <th>品番</th>
+                        <th>部品名</th>
+                        <th>現在庫数</th>
+                        <th>最低発注レベル</th>
+                        <th>不足数</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="stocktake-management" class="tab-content hidden">
+        <div class="section">
+            <h2>棚卸し</h2>
+            <div class="form-group">
+                <label for="stocktake-shop-select">棚卸し対象の工場を選択してください:</label>
+                <select id="stocktake-shop-select" onchange="loadStocktakeList()">
+                    <option value="">-- 工場を選択 --</option>
+                </select>
+            </div>
+            <div id="stocktake-area" class="hidden">
+                <table id="stocktake-table">
+                    <thead>
+                        <tr>
+                            <th>品番</th>
+                            <th>部品名</th>
+                            <th>システム在庫数</th>
+                            <th>実在庫数</th>
+                            <th>差異</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <button id="update-stocktake-btn" class="btn-primary" onclick="updateStocktake()" style="margin-top: 20px;">この内容で在庫を更新する</button>
+                <p id="stocktake-message"></p>
+            </div>
         </div>
     </div>
 
@@ -243,6 +352,10 @@
                 <label for="edit-part-name">部品名:</label>
                 <input type="text" id="edit-part-name">
             </div>
+            <div class="form-group">
+                <label for="edit-part-category">カテゴリー:</label>
+                <select id="edit-part-category"></select>
+            </div>
             <button class="btn-primary" onclick="updatePart()">保存</button>
             <p id="edit-part-message" class="success-message"></p>
         </div>
@@ -277,6 +390,20 @@
         </div>
     </div>
 
+    <div id="edit-category-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeEditCategoryModal()">&times;</span>
+            <h2>カテゴリー編集</h2>
+            <input type="hidden" id="edit-category-id">
+            <div class="form-group">
+                <label for="edit-category-name">カテゴリー名:</label>
+                <input type="text" id="edit-category-name">
+            </div>
+            <button class="btn-primary" onclick="updateCategory()">保存</button>
+            <p id="edit-category-message" class="success-message"></p>
+        </div>
+    </div>
+
     <script>
         let currentUser = null;
         document.addEventListener('DOMContentLoaded', checkAuthAndLoadAdmin);
@@ -284,6 +411,8 @@
         let allShops = [];
         let allParts = [];
         let allUsers = [];
+        let allCategories = [];
+        let allInventoryData = [];
 
         // --- Core Functions ---
         async function checkAuthAndLoadAdmin() {
@@ -322,7 +451,9 @@
             await loadShops();
             await loadParts();
             await loadUsers();
+            await loadCategories();
             await loadAllInventory();
+            await loadReorderList();
             await loadUsageHistory();
             await loadInventoryLocations();
         }
@@ -341,11 +472,16 @@
                     row.insertCell().innerHTML = `<td class="action-buttons"><button class="btn-secondary" onclick="openEditShopModal(${shop.id})">編集</button> <button class="btn-danger" onclick="deleteShop(${shop.id}, '${shop.name}')">削除</button></td>`;
                 });
                 
-                const shopSelects = [document.getElementById('new-user-shop-id'), document.getElementById('edit-user-shop-id'), document.getElementById('inventory-shop-select'), document.getElementById('filter-shop-id')];
+                const shopSelects = [document.getElementById('new-user-shop-id'), document.getElementById('edit-user-shop-id'), document.getElementById('inventory-shop-select'), document.getElementById('filter-shop-id'), document.getElementById('inv-filter-shop'), document.getElementById('stocktake-shop-select')];
                 shopSelects.forEach(sel => {
                     if (!sel) return;
                     const currentValue = sel.value;
-                    sel.innerHTML = sel.id.startsWith('filter') ? '<option value="">すべて</option>' : '';
+                    // Preserve the default first option for filter/select dropdowns
+                    const firstOption = sel.querySelector('option');
+                    sel.innerHTML = '';
+                    if (firstOption && (firstOption.value === '' || sel.id.startsWith('filter') || sel.id.startsWith('stocktake'))) {
+                        sel.appendChild(firstOption);
+                    }
                     allShops.forEach(shop => {
                         const option = document.createElement('option');
                         option.value = shop.id;
@@ -425,6 +561,7 @@
                     row.insertCell().textContent = part.id;
                     row.insertCell().textContent = part.part_number;
                     row.insertCell().textContent = part.part_name;
+                    row.insertCell().textContent = part.category_name || 'N/A';
                     row.insertCell().innerHTML = `<td class="action-buttons"><button class="btn-secondary" onclick="openEditPartModal(${part.id})">編集</button> <button class="btn-danger" onclick="deletePart(${part.id}, '${part.part_name}')">削除</button></td>`;
                 });
 
@@ -447,13 +584,15 @@
         async function addPart() {
             const partNumber = document.getElementById('new-part-number').value;
             const partName = document.getElementById('new-part-name').value;
+            const categoryId = document.getElementById('new-part-category').value;
             if (!partNumber || !partName) { showMessage('add-part-message', '品番と部品名を入力してください。', 'error'); return; }
             try {
-                const response = await fetch('/api/admin/parts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ part_number: partNumber, part_name: partName }) });
+                const response = await fetch('/api/admin/parts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ part_number: partNumber, part_name: partName, category_id: categoryId || null }) });
                 if (response.ok) {
                     showMessage('add-part-message', `部品「${partName}」を追加しました。`, 'success');
                     document.getElementById('new-part-number').value = '';
                     document.getElementById('new-part-name').value = '';
+                    document.getElementById('new-part-category').value = '';
                     loadParts();
                 } else {
                     const data = await response.json();
@@ -468,6 +607,7 @@
             document.getElementById('edit-part-id').value = part.id;
             document.getElementById('edit-part-number').value = part.part_number;
             document.getElementById('edit-part-name').value = part.part_name;
+            document.getElementById('edit-part-category').value = part.category_id || '';
             document.getElementById('edit-part-modal').style.display = 'block';
         }
 
@@ -477,8 +617,9 @@
             const id = document.getElementById('edit-part-id').value;
             const part_number = document.getElementById('edit-part-number').value;
             const part_name = document.getElementById('edit-part-name').value;
+            const category_id = document.getElementById('edit-part-category').value;
             try {
-                const response = await fetch(`/api/admin/parts/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ part_number, part_name }) });
+                const response = await fetch(`/api/admin/parts/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ part_number, part_name, category_id: category_id || null }) });
                 if (response.ok) {
                     showMessage('edit-part-message', '部品情報を更新しました。', 'success');
                     setTimeout(() => { closeEditPartModal(); loadParts(); }, 1000);
@@ -500,6 +641,48 @@
                     } else { showMessage('add-part-message', `エラー: ${data.error}`, 'error'); }
                 } catch (error) { showMessage('add-part-message', `通信エラー: ${error.message}`, 'error'); }
             }
+        }
+
+        async function importPartsCSV() {
+            const fileInput = document.getElementById('csv-file-input');
+            const messageEl = document.getElementById('import-parts-message');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                showMessage('import-parts-message', 'CSVファイルを選択してください。', 'error');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const csvData = event.target.result;
+                showMessage('import-parts-message', 'インポート処理を実行中...', 'info');
+
+                try {
+                    const response = await fetch('/api/admin/parts/csv', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csvData })
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        showMessage('import-parts-message', `${result.message} ${result.summary}`, 'success');
+                        fileInput.value = ''; // Clear file input
+                        loadParts(); // Refresh parts list
+                        loadCategories(); // Refresh categories in case new ones were added
+                    } else {
+                        let errorDetails = Array.isArray(result.details) ? result.details.join('\n') : (result.error || '不明なエラー');
+                        showMessage('import-parts-message', `インポート失敗: ${errorDetails}`, 'error');
+                        console.error('Import failed:', result);
+                    }
+                } catch (error) {
+                    showMessage('import-parts-message', `通信エラー: ${error.message}`, 'error');
+                }
+            };
+
+            reader.readAsText(file);
         }
 
         // --- User Management ---
@@ -598,7 +781,232 @@
             }
         }
 
+        // --- Category Management ---
+        async function loadCategories() {
+            try {
+                const response = await fetch('/api/admin/categories');
+                allCategories = await response.json();
+                const tableBody = document.querySelector('#categories-table tbody');
+                tableBody.innerHTML = '';
+                allCategories.forEach(cat => {
+                    const row = tableBody.insertRow();
+                    row.insertCell().textContent = cat.id;
+                    row.insertCell().textContent = cat.name;
+                    row.insertCell().innerHTML = `<td class="action-buttons"><button class="btn-secondary" onclick="openEditCategoryModal(${cat.id})">編集</button> <button class="btn-danger" onclick="deleteCategory(${cat.id}, \'${cat.name}\')">削除</button></td>`;
+                });
+
+                // Update part category dropdowns
+                const partCategorySelects = [document.getElementById('new-part-category'), document.getElementById('edit-part-category')];
+                partCategorySelects.forEach(sel => {
+                    if (!sel) return;
+                    const currentValue = sel.value;
+                    sel.innerHTML = '<option value="">カテゴリーなし</option>'; // Default option
+                    allCategories.forEach(cat => {
+                        const option = document.createElement('option');
+                        option.value = cat.id;
+                        option.textContent = cat.name;
+                        sel.appendChild(option);
+                    });
+                    sel.value = currentValue;
+                });
+            } catch (error) {
+                showMessage('add-category-message', `カテゴリーの読み込みエラー: ${error.message}`, 'error');
+            }
+        }
+
+        async function addCategory() {
+            const catName = document.getElementById('new-category-name').value;
+            if (!catName) { showMessage('add-category-message', 'カテゴリー名を入力してください。', 'error'); return; }
+            try {
+                const response = await fetch('/api/admin/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: catName }) });
+                if (response.ok) {
+                    showMessage('add-category-message', `カテゴリー「${catName}」を追加しました。`, 'success');
+                    document.getElementById('new-category-name').value = '';
+                    loadCategories();
+                } else {
+                    const data = await response.json();
+                    showMessage('add-category-message', `エラー: ${data.error}`, 'error');
+                }
+            } catch (error) { showMessage('add-category-message', `通信エラー: ${error.message}`, 'error'); }
+        }
+
+        function openEditCategoryModal(id) {
+            const category = allCategories.find(c => c.id === id);
+            if (!category) return;
+            document.getElementById('edit-category-id').value = category.id;
+            document.getElementById('edit-category-name').value = category.name;
+            document.getElementById('edit-category-modal').style.display = 'block';
+        }
+
+        function closeEditCategoryModal() { document.getElementById('edit-category-modal').style.display = 'none'; }
+
+        async function updateCategory() {
+            const id = document.getElementById('edit-category-id').value;
+            const name = document.getElementById('edit-category-name').value;
+            try {
+                const response = await fetch(`/api/admin/categories/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+                if (response.ok) {
+                    showMessage('edit-category-message', 'カテゴリー名を更新しました。', 'success');
+                    setTimeout(() => { closeEditCategoryModal(); loadCategories(); }, 1000);
+                } else {
+                    const data = await response.json();
+                    showMessage('edit-category-message', `エラー: ${data.error}`, 'error');
+                }
+            } catch (error) { showMessage('edit-category-message', `通信エラー: ${error.message}`, 'error'); }
+        }
+
+        async function deleteCategory(id, name) {
+            if (confirm(`本当にカテゴリー「${name}」を削除しますか？\nこのカテゴリーに属する部品がある場合は削除できません。`)) {
+                try {
+                    const response = await fetch(`/api/admin/categories/${id}`, { method: 'DELETE' });
+                    const data = await response.json();
+                    if (response.ok) {
+                        showMessage('add-category-message', data.message, 'success');
+                        loadCategories();
+                    } else { showMessage('add-category-message', `エラー: ${data.error}`, 'error'); }
+                } catch (error) { showMessage('add-category-message', `通信エラー: ${error.message}`, 'error'); }
+            }
+        }
+
         // --- Inventory Management ---
+
+        // --- Order Management ---
+        async function loadReorderList() {
+            try {
+                const response = await fetch('/api/admin/reorder-list');
+                const reorderList = await response.json();
+                const tableBody = document.querySelector('#reorder-list-table tbody');
+                tableBody.innerHTML = '';
+                if (reorderList.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="6">発注が必要な部品はありません。</td></tr>';
+                    return;
+                }
+                reorderList.forEach(item => {
+                    const row = tableBody.insertRow();
+                    row.insertCell().textContent = item.shop_name;
+                    row.insertCell().textContent = item.part_number;
+                    row.insertCell().textContent = item.part_name;
+                    row.insertCell().textContent = item.quantity;
+                    row.insertCell().textContent = item.min_reorder_level;
+                    const shortageCell = row.insertCell();
+                    shortageCell.textContent = item.shortage;
+                    shortageCell.style.color = 'red';
+                    shortageCell.style.fontWeight = 'bold';
+                });
+            } catch (error) {
+                document.querySelector('#reorder-list-table tbody').innerHTML = '<tr><td colspan="6" style="color: red;">発注リストの読み込みエラー</td></tr>';
+            }
+        }
+
+        // --- Stocktake Management ---
+        async function loadStocktakeList() {
+            const shopId = document.getElementById('stocktake-shop-select').value;
+            const stocktakeArea = document.getElementById('stocktake-area');
+            const tableBody = document.querySelector('#stocktake-table tbody');
+            
+            if (!shopId) {
+                stocktakeArea.classList.add('hidden');
+                return;
+            }
+
+            stocktakeArea.classList.remove('hidden');
+            tableBody.innerHTML = '<tr><td colspan="5">在庫を読み込み中...</td></tr>';
+
+            try {
+                const response = await fetch(`/api/shops/${shopId}/inventory`);
+                if (!response.ok) throw new Error('在庫の取得に失敗しました');
+                const inventory = await response.json();
+                tableBody.innerHTML = '';
+
+                if (inventory.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="5">この工場には在庫がありません。</td></tr>';
+                    return;
+                }
+
+                inventory.forEach(item => {
+                    const row = tableBody.insertRow();
+                    row.dataset.partId = item.id;
+
+                    row.insertCell().textContent = item.part_number;
+                    row.insertCell().textContent = item.part_name;
+                    const systemStockCell = row.insertCell();
+                    systemStockCell.textContent = item.quantity;
+                    systemStockCell.className = 'system-stock';
+
+                    const actualStockCell = row.insertCell();
+                    const actualStockInput = document.createElement('input');
+                    actualStockInput.type = 'number';
+                    actualStockInput.value = item.quantity; // 初期値はシステム在庫数
+                    actualStockInput.className = 'actual-stock-input';
+                    actualStockInput.min = 0;
+                    actualStockCell.appendChild(actualStockInput);
+
+                    const differenceCell = row.insertCell();
+                    differenceCell.className = 'difference';
+                    differenceCell.textContent = '0';
+
+                    actualStockInput.addEventListener('input', () => {
+                        const systemStock = parseInt(systemStockCell.textContent, 10);
+                        const actualStock = parseInt(actualStockInput.value, 10);
+                        const diff = actualStock - systemStock;
+                        differenceCell.textContent = diff;
+                        differenceCell.style.color = diff === 0 ? 'black' : (diff > 0 ? 'blue' : 'red');
+                        differenceCell.style.fontWeight = diff === 0 ? 'normal' : 'bold';
+                    });
+                });
+            } catch (error) {
+                tableBody.innerHTML = `<tr><td colspan="5" style="color: red;">${error.message}</td></tr>`;
+            }
+        }
+
+        async function updateStocktake() {
+            const shopId = document.getElementById('stocktake-shop-select').value;
+            if (!shopId) {
+                showMessage('stocktake-message', '工場が選択されていません。', 'error');
+                return;
+            }
+
+            if (!confirm('表示されている実在庫数でシステム在庫を上書きします。よろしいですか？\nこの操作は元に戻せません。')) {
+                return;
+            }
+
+            const rows = document.querySelectorAll('#stocktake-table tbody tr');
+            const stocktakeData = [];
+            rows.forEach(row => {
+                const partId = row.dataset.partId;
+                const actualQuantityInput = row.querySelector('.actual-stock-input');
+                if (partId && actualQuantityInput) {
+                    stocktakeData.push({
+                        part_id: parseInt(partId, 10),
+                        actual_quantity: parseInt(actualQuantityInput.value, 10)
+                    });
+                }
+            });
+
+            showMessage('stocktake-message', '在庫更新中...', 'info');
+
+            try {
+                const response = await fetch('/api/admin/inventory/stocktake', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shop_id: parseInt(shopId), stocktakeData })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    showMessage('stocktake-message', result.message, 'success');
+                    // Reload lists to reflect changes
+                    loadStocktakeList();
+                    loadAllInventory();
+                    loadReorderList();
+                } else {
+                    showMessage('stocktake-message', `エラー: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showMessage('stocktake-message', `通信エラー: ${error.message}`, 'error');
+            }
+        }
+
+
         async function loadInventoryLocations() {
             try {
                 const response = await fetch('/api/admin/inventory/locations');
@@ -616,21 +1024,38 @@
         async function loadAllInventory() {
             try {
                 const response = await fetch('/api/admin/all-inventory');
-                const inventory = await response.json();
-                const tableBody = document.querySelector('#all-inventory-table tbody');
-                tableBody.innerHTML = '';
-                inventory.forEach(item => {
-                    const row = tableBody.insertRow();
-                    row.insertCell().textContent = item.shop_name;
-                    row.insertCell().textContent = item.part_number;
-                    row.insertCell().textContent = item.part_name;
-                    row.insertCell().textContent = item.quantity;
-                    row.insertCell().textContent = item.min_reorder_level;
-                    row.insertCell().textContent = item.location_info;
-                    const itemCopy = JSON.parse(JSON.stringify(item));
-                    row.insertCell().innerHTML = `<td class="action-buttons"><button class="btn-secondary" onclick='editInventory(${JSON.stringify(itemCopy)})'>編集</button></td>`;
-                });
+                allInventoryData = await response.json();
+                renderAllInventoryTable(allInventoryData);
             } catch (error) { showMessage('update-inventory-message', `全在庫の読み込みエラー: ${error.message}`, 'error'); }
+        }
+
+        function renderAllInventoryTable(inventory) {
+            const tableBody = document.querySelector('#all-inventory-table tbody');
+            tableBody.innerHTML = '';
+            inventory.forEach(item => {
+                const row = tableBody.insertRow();
+                row.insertCell().textContent = item.shop_name;
+                row.insertCell().textContent = item.part_number;
+                row.insertCell().textContent = item.part_name;
+                row.insertCell().textContent = item.quantity;
+                row.insertCell().textContent = item.min_reorder_level;
+                row.insertCell().textContent = item.location_info;
+                const itemCopy = JSON.parse(JSON.stringify(item));
+                row.insertCell().innerHTML = `<td class="action-buttons"><button class="btn-secondary" onclick='editInventory(${JSON.stringify(itemCopy)})'>編集</button></td>`;
+            });
+        }
+
+        function filterAllInventory() {
+            const shopId = document.getElementById('inv-filter-shop').value;
+            const partFilter = document.getElementById('inv-filter-part').value.toLowerCase();
+
+            const filteredData = allInventoryData.filter(item => {
+                const shopMatch = !shopId || item.shop_id === parseInt(shopId);
+                const partMatch = !partFilter || item.part_name.toLowerCase().includes(partFilter) || item.part_number.toLowerCase().includes(partFilter);
+                return shopMatch && partMatch;
+            });
+
+            renderAllInventoryTable(filteredData);
         }
 
         function editInventory(item) {
@@ -664,7 +1089,48 @@
             } catch (error) { showMessage('update-inventory-message', `通信エラー: ${error.message}`, 'error'); }
         }
 
-        // --- Reports ---
+        async function importInventoryCSV() {
+            const fileInput = document.getElementById('inventory-csv-input');
+            const messageEl = document.getElementById('import-inventory-message');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                showMessage('import-inventory-message', 'CSVファイルを選択してください。', 'error');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const csvData = event.target.result;
+                showMessage('import-inventory-message', 'インポート処理を実行中...', 'info');
+
+                try {
+                    const response = await fetch('/api/admin/inventory/csv', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csvData })
+                    });
+
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        showMessage('import-inventory-message', `${result.message} ${result.summary}`, 'success');
+                        fileInput.value = ''; // Clear file input
+                        loadAllInventory(); // Refresh inventory list
+                    } else {
+                        let errorDetails = Array.isArray(result.details) ? result.details.join('\n') : (result.error || '不明なエラー');
+                        showMessage('import-inventory-message', `インポート失敗: ${errorDetails}`, 'error');
+                        console.error('Import failed:', result);
+                    }
+                } catch (error) {
+                    showMessage('import-inventory-message', `通信エラー: ${error.message}`, 'error');
+                }
+            };
+
+            reader.readAsText(file);
+        }
+
+        // --- Order Management ---
         async function loadUsageHistory() {
             const startDate = document.getElementById('filter-start-date').value;
             const endDate = document.getElementById('filter-end-date').value;

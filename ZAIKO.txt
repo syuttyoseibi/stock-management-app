@@ -1,0 +1,283 @@
+承知いたしました。Gemini CLIの環境でテストするため、手順書の内容を直接ターミナルに貼り付けやすいように、純粋な**Markdown形式のテキストファイル**として内容を再構成し、その出力を生成します。
+
+このファイルをローカルPCに保存して、Notionにコピペしたり、CLIに直接貼り付けたりして活用してください。
+
+-----
+
+## 委託在庫管理ツール構築手順書（Raspberry Pi 4版）テキスト出力
+
+````markdown
+# 委託在庫管理ツール構築手順書（Raspberry Pi 4版）
+
+## 🎯 プロジェクト概要
+
+超低コストで24時間稼働可能なリアルタイム在庫管理システムを構築する。
+
+---
+
+## 🛠 フェーズ 1: 開発環境（ローカルPC）の準備
+
+1. **ツールのインストール:** Git, Node.js, Docker DesktopをローカルPCにインストールする。
+2. **プロジェクトフォルダの作成:**
+    ```bash
+    mkdir stock-management-app
+    cd stock-management-app
+    git init
+    ```
+
+---
+
+## 💻 フェーズ 2: サーバープログラムの作成
+
+### ステップ 2-1: 依存関係の定義 (`package.json`)
+
+```json
+{
+  "name": "stock-management-app",
+  "version": "1.0.0",
+  "description": "Consignment Stock Management Tool for Auto Repair",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "sqlite3": "^5.1.7"
+  }
+}
+````
+
+### ステップ 2-2: Docker環境の定義 (`Dockerfile`)
+
+```dockerfile
+FROM node:lts-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+CMD ["node", "server.js"]
+```
+
+### ステップ 2-3: フロントエンドファイルの準備
+
+`public`フォルダを作成し、その中に`index.html`を作成します。
+
+**ファイル名: `public/index.html`**
+*(注: 長いJavaScriptコードを含むため、Notionなどで保存する際は、このコードブロック内の全てを一つのファイルに保存してください。)*
+
+```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>委託在庫 使用記録</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background-color: #f4f4f4; }
+        .part-item { background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        button:active { background-color: #0056b3; }
+        #status { margin-top: 20px; padding: 10px; background-color: #e0f7e0; border-radius: 5px; text-align: center; }
+    </style>
+</head>
+<body>
+    <h1>在庫使用記録 - [工場名]</h1>
+    <input type="text" id="mechanic_name" placeholder="整備士名（オプション）" style="width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 5px;">
+    <div id="part-list"></div>
+    <div id="status">部品を選択してください</div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', loadParts);
+        const partListDiv = document.getElementById('part-list');
+        const statusDiv = document.getElementById('status');
+        const mechanicInput = document.getElementById('mechanic_name');
+
+        async function loadParts() {
+            const response = await fetch('/api/parts');
+            const parts = await response.json();
+            partListDiv.innerHTML = ''; 
+
+            parts.forEach(part => {
+                const item = document.createElement('div');
+                item.className = 'part-item';
+                
+                const info = document.createElement('span');
+                info.textContent = `${part.part_name} (在庫: ${part.current_stock})`;
+                item.appendChild(info);
+
+                const button = document.createElement('button');
+                button.textContent = '使用';
+                button.onclick = () => usePart(part.id, part.part_name);
+                item.appendChild(button);
+                
+                partListDiv.appendChild(item);
+            });
+        }
+
+        async function usePart(partId, partName) {
+            const mechanic_name = mechanicInput.value;
+            statusDiv.textContent = `${partName} を記録中...`;
+
+            try {
+                const response = await fetch('/api/use-part', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ part_id: partId, mechanic_name: mechanic_name })
+                });
+                const result = await response.json();
+                
+                if (response.ok) {
+                    statusDiv.style.backgroundColor = '#e0f7e0';
+                    statusDiv.textContent = `✅ ${partName} の使用を記録しました。残り在庫: ${result.stock_left}`;
+                    loadParts(); 
+                } else {
+                    statusDiv.style.backgroundColor = '#f7e0e0';
+                    statusDiv.textContent = `❌ エラー: ${result.error || '不明なエラー'}`;
+                }
+            } catch (error) {
+                statusDiv.style.backgroundColor = '#f7e0e0';
+                statusDiv.textContent = `通信エラー: サーバーに接続できません。`;
+            }
+        }
+    </script>
+</body>
+</html>
+```
+
+### ステップ 2-4: サーバーロジック (`server.js`)
+
+```javascript
+const express = require('express');
+const sqlite3 = require('sqlite3').verbose();
+const db = new sqlite3.Database('./stock.db');
+const app = express();
+const PORT = 3000;
+
+app.use(express.json());
+app.use(express.static('public')); 
+
+// --- データベースと初期データの準備 ---
+db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS parts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        part_name TEXT NOT NULL,
+        stock_location TEXT NOT NULL,
+        current_stock INTEGER NOT NULL,
+        min_reorder_level INTEGER NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS usage_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        part_id INTEGER NOT NULL,
+        usage_time TEXT NOT NULL,
+        mechanic_name TEXT,
+        FOREIGN KEY (part_id) REFERENCES parts(id)
+    )`);
+    
+    db.get("SELECT COUNT(*) AS count FROM parts", (err, row) => {
+        if (row && row.count === 0) {
+            const stmt = db.prepare("INSERT INTO parts (part_name, stock_location, current_stock, min_reorder_level) VALUES (?, ?, ?, ?)");
+            stmt.run("オイルフィルター X10", "田辺工場_棚A", 15, 5);
+            stmt.run("ブレーキパッド R20", "田辺工場_棚B", 8, 3);
+            stmt.run("バッテリー V60", "田辺工場_棚C", 4, 2);
+            stmt.finalize();
+            console.log("Initial test data inserted.");
+        }
+    });
+});
+
+
+// API 1: 部品リストの取得
+app.get('/api/parts', (req, res) => {
+    db.all("SELECT id, part_name, current_stock FROM parts ORDER BY part_name", [], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+// API 2: 部品の使用記録
+app.post('/api/use-part', (req, res) => {
+    const { part_id, mechanic_name } = req.body;
+    if (!part_id) return res.status(400).json({ error: "部品IDが必要です" });
+
+    db.serialize(() => {
+        db.run("BEGIN TRANSACTION;");
+
+        db.run("UPDATE parts SET current_stock = current_stock - 1 WHERE id = ? AND current_stock > 0", [part_id], function(err) {
+            if (err || this.changes === 0) { 
+                db.run("ROLLBACK;");
+                return res.status(400).json({ error: "在庫がないか、在庫更新に失敗しました。" });
+            }
+
+            db.run("INSERT INTO usage_history (part_id, usage_time, mechanic_name) VALUES (?, datetime('now', 'localtime'), ?)", [part_id, mechanic_name || '不明'], function(err) {
+                if (err) {
+                    db.run("ROLLBACK;");
+                    return res.status(500).json({ error: "履歴記録エラー: " + err.message });
+                }
+
+                db.get("SELECT part_name, current_stock, min_reorder_level FROM parts WHERE id = ?", [part_id], (err, row) => {
+                    if (row && row.current_stock < row.min_reorder_level) {
+                        console.log(`!!! 再発注アラート: ${row.part_name} が最低発注レベル (${row.min_reorder_level})を下回りました。現在の在庫: ${row.current_stock}`);
+                    }
+                    db.run("COMMIT;");
+                    res.json({ message: "使用記録が完了しました。", stock_left: row.current_stock });
+                });
+            });
+        });
+    });
+});
+
+app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+```
+
+-----
+
+## 🛠 フェーズ 3: ラズパイ（サーバー）の準備 (続き)
+
+*(このフェーズは、ラズパイ上で手動で実行が必要です。)*
+
+1.  **SSH接続:** `ssh [ユーザー名]@[ラズパイのIPアドレス]`
+2.  **Dockerのインストール:**
+    ```bash
+    curl -sSL [https://get.docker.com](https://get.docker.com) | sh
+    sudo usermod -aG docker pi
+    # 再接続
+    ```
+
+-----
+
+## 🚀 フェーズ 4: デプロイとテスト (続き)
+
+*(このフェーズは、ローカルPCとラズパイの両方で実行が必要です。)*
+
+1.  **コード転送（ラズパイ側）:** `git clone`でコードを取得し、`cd stock-management-app`
+2.  **Dockerイメージのビルド（ラズパイ側）:**
+    ```bash
+    docker build -t local-stock-app .
+    ```
+3.  **コンテナの起動（ラズパイ側）:**
+    ```bash
+    docker run -d \
+      -p 3000:3000 \
+      --name stock-manager \
+      --restart always \
+      local-stock-app
+    ```
+4.  **動作確認:** ブラウザで `http://[ラズパイのIPアドレス]:3000` にアクセス。
+
+-----
+
+## 🔒 フェーズ 5: 外部公開のテスト（Ngrok利用）
+
+*(このフェーズは、ラズパイ上で手動で実行が必要です。)*
+
+1.  **Ngrokの実行（ラズパイ側）:**
+    ```bash
+    ngrok http 3000
+    ```
+2.  **外部アクセス:** Ngrokが表示したURLをモバイル回線で確認。
+
+<!-- end list -->
+
+```
+```
