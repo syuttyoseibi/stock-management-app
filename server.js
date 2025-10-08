@@ -185,9 +185,12 @@ function isAuthenticated(req, res, next) {
 }
 
 function isAdmin(req, res, next) {
+    console.log(`[DEBUG] isAdmin middleware check for URL: ${req.originalUrl}`);
+    console.log('[DEBUG] Session user role:', req.session.user ? req.session.user.role : 'No session user');
     if (req.session.user && req.session.user.role === 'admin') {
         next();
     } else {
+        console.log('[DEBUG] isAdmin check failed. Responding with 403.');
         res.status(403).json({ error: 'Forbidden: Admin access required' });
     }
 }
@@ -422,6 +425,7 @@ app.get('/api/admin/all-inventory', isAuthenticated, isAdmin, (req, res) => {
 });
 
 app.post('/api/admin/inventory', isAuthenticated, isAdmin, (req, res) => {
+    console.log('[DEBUG] Received request for /api/admin/inventory with body:', req.body);
     const { shop_id, part_id, quantity, min_reorder_level, location_info } = req.body;
     if (!shop_id || !part_id || quantity === undefined || min_reorder_level === undefined) {
         return res.status(400).json({ error: 'Shop, part, quantity, and min_reorder_level are required' });
