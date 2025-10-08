@@ -6,6 +6,7 @@ describe('Stock Management API', () => {
     let shopUserAgent; // Agent for shop user
     let testShopId;
     let testPartId;
+    let testEmployeeId;
     let testUsageId;
 
     beforeAll(async () => {
@@ -44,6 +45,12 @@ describe('Stock Management API', () => {
         await adminAgent
             .post('/api/admin/inventory')
             .send({ shop_id: testShopId, part_id: testPartId, quantity: 10, min_reorder_level: 2 });
+
+        // Create an employee for the shop
+        const employeeRes = await adminAgent
+            .post('/api/admin/employees')
+            .send({ name: 'Test Employee', shop_id: testShopId });
+        testEmployeeId = employeeRes.body.id;
     });
 
     afterAll((done) => {
@@ -80,7 +87,7 @@ describe('Stock Management API', () => {
         it('should use a part from their shop', async () => {
             const res = await shopUserAgent
                 .post('/api/use-part')
-                .send({ part_id: testPartId, shop_id: testShopId, mechanic_name: 'Test Mechanic' });
+                .send({ part_id: testPartId, shop_id: testShopId, employee_id: testEmployeeId });
             expect(res.statusCode).toEqual(200);
             expect(res.body.stock_left).toBe(9);
         });
@@ -93,6 +100,7 @@ describe('Stock Management API', () => {
             expect(res.body.length).toBeGreaterThan(0);
             const usage = res.body.find(h => h.part_number === 'TEST-001');
             expect(usage).toBeDefined();
+            expect(usage.employee_name).toBe('Test Employee');
             testUsageId = usage.id; // Save for cancellation test
         });
 
