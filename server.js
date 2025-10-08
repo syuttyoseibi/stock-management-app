@@ -115,19 +115,27 @@ db.serialize(() => {
 // API for Login
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
+    console.log(`[DEBUG] Login attempt with username: ${username}`);
+
     if (!username || !password) {
         return res.status(400).json({ error: 'Username and password are required' });
     }
 
     db.get("SELECT * FROM users WHERE username = ?", [username], (err, user) => {
         if (err) {
+            console.error('[DEBUG] Login DB Error:', err);
             return res.status(500).json({ error: 'Server error' });
         }
+
+        console.log('[DEBUG] User found in DB:', user);
+
         if (!user) {
+            console.log('[DEBUG] Login failed: User not found.');
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
         bcrypt.compare(password, user.password_hash, (err, result) => {
+            console.log(`[DEBUG] Password comparison result for ${username}: ${result}`);
             if (result) {
                 // Passwords match
                 req.session.user = {
@@ -136,9 +144,11 @@ app.post('/api/login', (req, res) => {
                     role: user.role,
                     shop_id: user.shop_id
                 };
+                console.log('[DEBUG] Login successful for user:', req.session.user);
                 res.json({ message: 'Login successful', user: req.session.user });
             } else {
                 // Passwords don't match
+                console.log('[DEBUG] Login failed: Password mismatch.');
                 res.status(401).json({ error: 'Invalid credentials' });
             }
         });
