@@ -85,51 +85,101 @@ db.serialize(() => {
     });
 });
 
-
-/*
 // -------------------------------------------------
-// TODO: APIはステップ2で新しいDB構造に合わせて修正します
+// API (ステップ2: 新DB構造対応)
 // -------------------------------------------------
 
-// API 1: 部品リストの取得
-app.get('/api/parts', (req, res) => {
-    db.all("SELECT id, part_name, current_stock FROM parts ORDER BY part_name", [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
+// API 1: 全ての工場リストを取得
+app.get('/api/shops', (req, res) => {
+    db.all("SELECT id, name FROM shops ORDER BY name", [], (err, rows) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
         res.json(rows);
     });
 });
 
-// API 2: 部品の使用記録
+// API 2: 指定された工場の在庫部品リストを取得
+app.get('/api/shops/:shopId/inventory', (req, res) => {
+    const { shopId } = req.params;
+    const sql = `
+        SELECT
+            p.id,
+            p.part_number,
+            p.part_name,
+            i.quantity,
+            i.location_info
+        FROM parts p
+        JOIN inventories i ON p.id = i.part_id
+        WHERE i.shop_id = ? AND i.quantity > 0
+        ORDER BY p.part_name;
+    `;
+    db.all(sql, [shopId], (err, rows) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json(rows);
+    });
+});
+
+// API 3: 部品の使用を記録
 app.post('/api/use-part', (req, res) => {
-    const { part_id, mechanic_name } = req.body;
-    if (!part_id) return res.status(400).json({ error: "部品IDが必要です" });
+    const { part_id, shop_id, mechanic_name } = req.body;
+
+    if (!part_id || !shop_id) {
+        return res.status(400).json({ error: "部品IDと工場IDは必須です" });
+    }
 
     db.serialize(() => {
         db.run("BEGIN TRANSACTION;");
 
-        db.run("UPDATE parts SET current_stock = current_stock - 1 WHERE id = ? AND current_stock > 0", [part_id], function(err) {
-            if (err || this.changes === 0) {
+        // 在庫を1つ減らす
+        const updateQuery = "UPDATE inventories SET quantity = quantity - 1 WHERE part_id = ? AND shop_id = ? AND quantity > 0";
+        db.run(updateQuery, [part_id, shop_id], function(err) {
+            if (err) {
                 db.run("ROLLBACK;");
-                return res.status(400).json({ error: "在庫がないか、在庫更新に失敗しました。" });
+                return res.status(500).json({ error: "在庫更新エラー: " + err.message });
+            }
+            if (this.changes === 0) {
+                db.run("ROLLBACK;");
+                return res.status(400).json({ error: "在庫がないか、指定された部品/工場が見つかりません。" });
             }
 
-            db.run("INSERT INTO usage_history (part_id, usage_time, mechanic_name) VALUES (?, datetime('now', 'localtime'), ?)", [part_id, mechanic_name || '不明'], function(err) {
+            // 使用履歴をインサート
+            const historyQuery = "INSERT INTO usage_history (part_id, shop_id, usage_time, mechanic_name) VALUES (?, ?, datetime('now', 'localtime'), ?)";
+            db.run(historyQuery, [part_id, shop_id, mechanic_name || '不明'], function(err) {
                 if (err) {
                     db.run("ROLLBACK;");
                     return res.status(500).json({ error: "履歴記録エラー: " + err.message });
                 }
 
-                db.get("SELECT part_name, current_stock, min_reorder_level FROM parts WHERE id = ?", [part_id], (err, row) => {
-                    if (row && row.current_stock < row.min_reorder_level) {
-                        console.log(`!!! 再発注アラート: ${row.part_name} が最低発注レベル (${row.min_reorder_level})を下回りました。現在の在庫: ${row.current_stock}`);
+                // 更新後の在庫数と発注点を確認
+                const selectQuery = `
+                    SELECT i.quantity, i.min_reorder_level, p.part_name
+                    FROM inventories i
+                    JOIN parts p ON i.part_id = p.id
+                    WHERE i.part_id = ? AND i.shop_id = ?
+                `;
+                db.get(selectQuery, [part_id, shop_id], (err, row) => {
+                    if (err) {
+                        // This is tricky, the main transaction is already done. We'll just log the error.
+                        console.error("Could not retrieve stock level for reorder alert:", err.message);
+                        db.run("COMMIT;");
+                        return res.json({ message: "使用記録が完了しました。", stock_left: "不明" });
+                    }
+
+                    if (row && row.quantity < row.min_reorder_level) {
+                        console.log(`!!! 再発注アラート: [工場ID: ${shop_id}] ${row.part_name} が最低発注レベル (${row.min_reorder_level})を下回りました。現在の在庫: ${row.quantity}`);
                     }
                     db.run("COMMIT;");
-                    res.json({ message: "使用記録が完了しました。", stock_left: row.current_stock });
+                    res.json({ message: "使用記録が完了しました。", stock_left: row.quantity });
                 });
             });
         });
     });
 });
-*/
+
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
