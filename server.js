@@ -407,6 +407,72 @@ app.post('/api/admin/users', isAuthenticated, isAdmin, (req, res) => {
     });
 });
 
+// Update a user
+app.put('/api/admin/users/:id', isAuthenticated, isAdmin, (req, res) => {
+    const { id } = req.params;
+    const { username, role, shop_id, password } = req.body;
+
+    if (!username || !role) {
+        return res.status(400).json({ error: 'Username and role are required' });
+    }
+    if (role === 'shop_user' && !shop_id) {
+        return res.status(400).json({ error: 'Shop ID is required for shop users' });
+    }
+
+    // If password is provided, update it. Otherwise, keep the old one.
+    if (password) {
+        bcrypt.hash(password, saltRounds, (err, hash) => {
+            if (err) {
+                return res.status(500).json({ error: 'Error hashing password' });
+            }
+            const finalShopId = role === 'admin' ? null : shop_id;
+            db.run(
+                "UPDATE users SET username = ?, password_hash = ?, role = ?, shop_id = ? WHERE id = ?",
+                [username, hash, role, finalShopId, id],
+                function(err) {
+                    if (err) {
+                        return res.status(500).json({ error: err.message });
+                    }
+                    res.json({ message: 'User updated successfully' });
+                }
+            );
+        });
+    } else {
+        // Update without changing password
+        const finalShopId = role === 'admin' ? null : shop_id;
+        db.run(
+            "UPDATE users SET username = ?, role = ?, shop_id = ? WHERE id = ?",
+            [username, role, finalShopId, id],
+            function(err) {
+                if (err) {
+                    return res.status(500).json({ error: err.message });
+                }
+                res.json({ message: 'User updated successfully' });
+            }
+        );
+    }
+});
+
+// Delete a user
+app.delete('/api/admin/users/:id', isAuthenticated, isAdmin, (req, res) => {
+    const { id } = req.params;
+    const loggedInUserId = req.session.user.id;
+
+    if (parseInt(id, 10) === loggedInUserId) {
+        return res.status(400).json({ error: 'You cannot delete your own account.' });
+    }
+
+    db.run("DELETE FROM users WHERE id = ?", [id], function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (this.changes === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        res.json({ message: 'User deleted successfully' });
+    });
+});
+
 // --- Inventory Management (Admin) ---
 app.get('/api/admin/all-inventory', isAuthenticated, isAdmin, (req, res) => {
     const sql = `
