@@ -73,6 +73,7 @@
         <button class="active" onclick="showTab('shop-management', this)">工場管理</button>
         <button onclick="showTab('part-management', this)">部品マスタ管理</button>
         <button onclick="showTab('user-management', this)">ユーザー管理</button>
+        <button onclick="showTab('employee-management', this)">従業員管理</button>
         <button onclick="showTab('category-management', this)">カテゴリー管理</button>
         <button onclick="showTab('inventory-management', this)">在庫管理</button>
         <button onclick="showTab('order-management', this)">発注管理</button>
@@ -166,6 +167,28 @@
             <h3>登録済みユーザーリスト</h3>
             <table id="users-table">
                 <thead><tr><th>ID</th><th>ユーザー名</th><th>ロール</th><th>工場</th><th>操作</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="employee-management" class="tab-content hidden">
+        <div class="section">
+            <h2>従業員管理</h2>
+            <h3>新しい従業員を追加</h3>
+            <div class="form-group">
+                <label for="new-employee-name">従業員名:</label>
+                <input type="text" id="new-employee-name" placeholder="例: 鈴木 一郎">
+            </div>
+            <div class="form-group">
+                <label for="new-employee-shop-id">所属工場:</label>
+                <select id="new-employee-shop-id"></select>
+            </div>
+            <button class="btn-primary" onclick="addEmployee()">従業員を追加</button>
+            <p id="add-employee-message" class="success-message"></p>
+            <h3>登録済み従業員リスト</h3>
+            <table id="employees-table">
+                <thead><tr><th>ID</th><th>従業員名</th><th>所属工場</th><th>状態</th><th>操作</th></tr></thead>
                 <tbody></tbody>
             </table>
         </div>
@@ -318,7 +341,7 @@
                 <button class="btn-secondary" onclick="clearReportFilters()">クリア</button>
             </div>
             <table id="usage-history-table">
-                <thead><tr><th>工場名</th><th>品番</th><th>部品名</th><th>使用日時</th><th>整備士名</th></tr></thead>
+                <thead><tr><th>工場名</th><th>品番</th><th>部品名</th><th>使用日時</th><th>従業員名</th></tr></thead>
                 <tbody></tbody>
             </table>
         </div>
@@ -404,6 +427,29 @@
         </div>
     </div>
 
+    <div id="edit-employee-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeEditEmployeeModal()">&times;</span>
+            <h2>従業員編集</h2>
+            <input type="hidden" id="edit-employee-id">
+            <div class="form-group">
+                <label for="edit-employee-name">従業員名:</label>
+                <input type="text" id="edit-employee-name">
+            </div>
+            <div class="form-group">
+                <label for="edit-employee-shop-id">所属工場:</label>
+                <select id="edit-employee-shop-id"></select>
+            </div>
+            <div class="form-group">
+                <label for="edit-employee-is-active">状態:</label>
+                <input type="checkbox" id="edit-employee-is-active" style="width: auto;">
+                <label for="edit-employee-is-active" style="display: inline;">有効</label>
+            </div>
+            <button class="btn-primary" onclick="updateEmployee()">保存</button>
+            <p id="edit-employee-message" class="success-message"></p>
+        </div>
+    </div>
+
     <script>
         let currentUser = null;
         document.addEventListener('DOMContentLoaded', checkAuthAndLoadAdmin);
@@ -413,6 +459,7 @@
         let allUsers = [];
         let allCategories = [];
         let allInventoryData = [];
+        let allEmployees = [];
 
         // --- Core Functions ---
         async function checkAuthAndLoadAdmin() {
@@ -451,6 +498,7 @@
             await loadShops();
             await loadParts();
             await loadUsers();
+            await loadEmployees();
             await loadCategories();
             await loadAllInventory();
             await loadReorderList();
@@ -472,7 +520,7 @@
                     row.insertCell().innerHTML = `<td class="action-buttons"><button class="btn-secondary" onclick="openEditShopModal(${shop.id})">編集</button> <button class="btn-danger" onclick="deleteShop(${shop.id}, '${shop.name}')">削除</button></td>`;
                 });
                 
-                const shopSelects = [document.getElementById('new-user-shop-id'), document.getElementById('edit-user-shop-id'), document.getElementById('inventory-shop-select'), document.getElementById('filter-shop-id'), document.getElementById('inv-filter-shop'), document.getElementById('stocktake-shop-select')];
+                const shopSelects = [document.getElementById('new-user-shop-id'), document.getElementById('edit-user-shop-id'), document.getElementById('inventory-shop-select'), document.getElementById('filter-shop-id'), document.getElementById('inv-filter-shop'), document.getElementById('stocktake-shop-select'), document.getElementById('new-employee-shop-id'), document.getElementById('edit-employee-shop-id')];
                 shopSelects.forEach(sel => {
                     if (!sel) return;
                     const currentValue = sel.value;
@@ -778,6 +826,83 @@
                         showMessage('add-user-message', `エラー: ${data.error}`, 'error');
                     }
                 } catch (error) { showMessage('add-user-message', `通信エラー: ${error.message}`, 'error'); }
+            }
+        }
+
+        // --- Employee Management ---
+        async function loadEmployees() {
+            try {
+                const response = await fetch('/api/admin/employees');
+                allEmployees = await response.json();
+                const tableBody = document.querySelector('#employees-table tbody');
+                tableBody.innerHTML = '';
+                allEmployees.forEach(employee => {
+                    const row = tableBody.insertRow();
+                    row.insertCell().textContent = employee.id;
+                    row.insertCell().textContent = employee.name;
+                    row.insertCell().textContent = employee.shop_name;
+                    row.insertCell().textContent = employee.is_active ? '有効' : '無効';
+                    row.insertCell().innerHTML = `<td class="action-buttons"><button class="btn-secondary" onclick="openEditEmployeeModal(${employee.id})">編集</button> <button class="btn-danger" onclick="deleteEmployee(${employee.id}, '${employee.name}')">削除</button></td>`;
+                });
+            } catch (error) { showMessage('add-employee-message', `従業員の読み込みエラー: ${error.message}`, 'error'); }
+        }
+
+        async function addEmployee() {
+            const name = document.getElementById('new-employee-name').value;
+            const shopId = document.getElementById('new-employee-shop-id').value;
+            if (!name || !shopId) { showMessage('add-employee-message', '従業員名と所属工場を選択してください。', 'error'); return; }
+            try {
+                const response = await fetch('/api/admin/employees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, shop_id: parseInt(shopId) }) });
+                if (response.ok) {
+                    showMessage('add-employee-message', `従業員「${name}」を追加しました。`, 'success');
+                    document.getElementById('new-employee-name').value = '';
+                    loadEmployees();
+                } else {
+                    const data = await response.json();
+                    showMessage('add-employee-message', `エラー: ${data.error}`, 'error');
+                }
+            } catch (error) { showMessage('add-employee-message', `通信エラー: ${error.message}`, 'error'); }
+        }
+
+        function openEditEmployeeModal(id) {
+            const employee = allEmployees.find(e => e.id === id);
+            if (!employee) return;
+            document.getElementById('edit-employee-id').value = employee.id;
+            document.getElementById('edit-employee-name').value = employee.name;
+            document.getElementById('edit-employee-shop-id').value = employee.shop_id;
+            document.getElementById('edit-employee-is-active').checked = employee.is_active;
+            document.getElementById('edit-employee-modal').style.display = 'block';
+        }
+
+        function closeEditEmployeeModal() { document.getElementById('edit-employee-modal').style.display = 'none'; }
+
+        async function updateEmployee() {
+            const id = document.getElementById('edit-employee-id').value;
+            const name = document.getElementById('edit-employee-name').value;
+            const shop_id = document.getElementById('edit-employee-shop-id').value;
+            const is_active = document.getElementById('edit-employee-is-active').checked ? 1 : 0;
+            try {
+                const response = await fetch(`/api/admin/employees/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, shop_id: parseInt(shop_id), is_active }) });
+                if (response.ok) {
+                    showMessage('edit-employee-message', '従業員情報を更新しました。', 'success');
+                    setTimeout(() => { closeEditEmployeeModal(); loadEmployees(); }, 1000);
+                } else {
+                    const data = await response.json();
+                    showMessage('edit-employee-message', `エラー: ${data.error}`, 'error');
+                }
+            } catch (error) { showMessage('edit-employee-message', `通信エラー: ${error.message}`, 'error'); }
+        }
+
+        async function deleteEmployee(id, name) {
+            if (confirm(`本当に従業員「${name}」を削除しますか？`)) {
+                try {
+                    const response = await fetch(`/api/admin/employees/${id}`, { method: 'DELETE' });
+                    const data = await response.json();
+                    if (response.ok) {
+                        showMessage('add-employee-message', data.message, 'success');
+                        loadEmployees();
+                    } else { showMessage('add-employee-message', `エラー: ${data.error}`, 'error'); }
+                } catch (error) { showMessage('add-employee-message', `通信エラー: ${error.message}`, 'error'); }
             }
         }
 
@@ -1154,7 +1279,7 @@
                     row.insertCell().textContent = item.part_number;
                     row.insertCell().textContent = item.part_name;
                     row.insertCell().textContent = new Date(item.usage_time).toLocaleString();
-                    row.insertCell().textContent = item.mechanic_name;
+                    row.insertCell().textContent = item.employee_name;
                 });
             } catch (error) { showMessage('auth-status', `使用履歴の読み込みエラー: ${error.message}`, 'error'); }
         }

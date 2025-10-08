@@ -45,8 +45,10 @@
 
     <div id="use-view">
         <div class="control-group">
-            <label for="mechanic_name">整備士名（オプション）</label>
-            <input type="text" id="mechanic_name" placeholder="名前を入力...">
+            <label for="employee_select">整備士</label>
+            <select id="employee_select" style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+                <option value="">選択してください</option>
+            </select>
         </div>
         <hr>
         <h3>使用した部品を選択してください</h3>
@@ -64,7 +66,7 @@
                     <th>使用日時</th>
                     <th>品番</th>
                     <th>部品名</th>
-                    <th>整備士名</th>
+                    <th>整備士</th>
                     <th>操作</th>
                 </tr>
             </thead>
@@ -95,7 +97,7 @@
 
         const partListDiv = document.getElementById('part-list');
         const statusDiv = document.getElementById('status');
-        const mechanicInput = document.getElementById('mechanic_name');
+        const employeeSelect = document.getElementById('employee_select');
         const usernameDisplay = document.getElementById('username-display');
         const shopNameDisplay = document.getElementById('shop-name-display');
         const monthSelect = document.getElementById('month-select');
@@ -140,6 +142,7 @@
             } catch (e) { console.error('Failed to load shop name', e); }
 
             loadInventory(currentUser.shop_id);
+            loadEmployees();
             
             const now = new Date();
             const year = now.getFullYear();
@@ -148,6 +151,23 @@
             loadUsageHistory(monthSelect.value);
 
             monthSelect.addEventListener('change', () => loadUsageHistory(monthSelect.value));
+        }
+
+        async function loadEmployees() {
+            try {
+                const response = await fetch('/api/employees');
+                if (!response.ok) throw new Error('従業員リストの取得に失敗しました');
+                const employees = await response.json();
+                employeeSelect.innerHTML = '<option value="">選択してください</option>';
+                employees.forEach(emp => {
+                    const option = document.createElement('option');
+                    option.value = emp.id;
+                    option.textContent = emp.name;
+                    employeeSelect.appendChild(option);
+                });
+            } catch (error) {
+                showError(error.message);
+            }
         }
 
         function showView(viewId, element) {
@@ -192,9 +212,9 @@
         }
 
         async function usePart(partId, partName) {
-            const mechanic_name = mechanicInput.value;
-            if (!mechanic_name) {
-                showError('整備士名を入力してください。');
+            const employee_id = employeeSelect.value;
+            if (!employee_id) {
+                showError('整備士を選択してください。');
                 return;
             }
 
@@ -207,7 +227,7 @@
                 const response = await fetch('/api/use-part', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ part_id: partId, shop_id: currentUser.shop_id, mechanic_name })
+                    body: JSON.stringify({ part_id: partId, shop_id: currentUser.shop_id, employee_id })
                 });
                 const result = await response.json();
                 if (response.ok) {
@@ -245,7 +265,7 @@
                     row.insertCell().textContent = new Date(item.usage_time).toLocaleString();
                     row.insertCell().textContent = item.part_number;
                     row.insertCell().textContent = item.part_name;
-                    row.insertCell().textContent = item.mechanic_name;
+                    row.insertCell().textContent = item.employee_name;
                     
                     const actionCell = row.insertCell();
                     if (item.status === 'active') {

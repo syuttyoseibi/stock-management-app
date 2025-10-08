@@ -43,7 +43,8 @@ const initializeDatabase = async () => {
     await dbRun(`CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)`);
     await dbRun(`CREATE TABLE IF NOT EXISTS parts (id INTEGER PRIMARY KEY AUTOINCREMENT, part_number TEXT NOT NULL UNIQUE, part_name TEXT NOT NULL, category_id INTEGER, FOREIGN KEY (category_id) REFERENCES categories(id))`);
     await dbRun(`CREATE TABLE IF NOT EXISTS inventories (id INTEGER PRIMARY KEY AUTOINCREMENT, part_id INTEGER NOT NULL, shop_id INTEGER NOT NULL, quantity INTEGER NOT NULL, min_reorder_level INTEGER NOT NULL, location_info TEXT, FOREIGN KEY (part_id) REFERENCES parts(id), FOREIGN KEY (shop_id) REFERENCES shops(id), UNIQUE(part_id, shop_id))`);
-    await dbRun(`CREATE TABLE IF NOT EXISTS usage_history (id INTEGER PRIMARY KEY AUTOINCREMENT, part_id INTEGER NOT NULL, shop_id INTEGER NOT NULL, usage_time TEXT NOT NULL, mechanic_name TEXT, status TEXT NOT NULL DEFAULT 'active', FOREIGN KEY (part_id) REFERENCES parts(id), FOREIGN KEY (shop_id) REFERENCES shops(id))`);
+    await dbRun(`CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, shop_id INTEGER NOT NULL, is_active INTEGER DEFAULT 1, FOREIGN KEY (shop_id) REFERENCES shops(id))`);
+    await dbRun(`CREATE TABLE IF NOT EXISTS usage_history (id INTEGER PRIMARY KEY AUTOINCREMENT, part_id INTEGER NOT NULL, shop_id INTEGER NOT NULL, employee_id INTEGER NOT NULL, usage_time TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', FOREIGN KEY (part_id) REFERENCES parts(id), FOREIGN KEY (shop_id) REFERENCES shops(id), FOREIGN KEY (employee_id) REFERENCES employees(id))`);
     await dbRun(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, shop_id INTEGER, role TEXT NOT NULL, FOREIGN KEY (shop_id) REFERENCES shops(id))`);
     await dbRun(`CREATE TABLE IF NOT EXISTS cancellation_history (id INTEGER PRIMARY KEY AUTOINCREMENT, usage_history_id INTEGER NOT NULL, cancelled_by_user_id INTEGER NOT NULL, cancelled_at TEXT NOT NULL, reason TEXT, FOREIGN KEY (usage_history_id) REFERENCES usage_history(id), FOREIGN KEY (cancelled_by_user_id) REFERENCES users(id))`);
     await dbRun(`CREATE TABLE IF NOT EXISTS stocktake_history (id INTEGER PRIMARY KEY AUTOINCREMENT, part_id INTEGER NOT NULL, shop_id INTEGER NOT NULL, user_id INTEGER NOT NULL, stocktake_time TEXT NOT NULL, quantity_before INTEGER NOT NULL, quantity_after INTEGER NOT NULL, notes TEXT, FOREIGN KEY (part_id) REFERENCES parts(id), FOREIGN KEY (shop_id) REFERENCES shops(id), FOREIGN KEY (user_id) REFERENCES users(id))`);
@@ -85,6 +86,18 @@ app.post('/api/login', async (req, res) => { const { username, password } = req.
 app.post('/api/logout', (req, res) => { req.session.destroy(err => { if (err) { return res.status(500).json({ error: 'Could not log out' }); } res.clearCookie('connect.sid'); res.json({ message: 'Logout successful' }); }); });
 app.get('/api/auth/status', (req, res) => { if (req.session.user) { res.json({ loggedIn: true, user: req.session.user }); } else { res.json({ loggedIn: false }); } });
 
+app.get('/api/employees', isAuthenticated, isShopUser, async (req, res) => {
+    try {
+        const employees = await dbAll(
+            "SELECT id, name FROM employees WHERE shop_id = ? AND is_active = 1 ORDER BY name",
+            [req.session.user.shop_id]
+        );
+        res.json(employees);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- Middleware ---
 function isAuthenticated(req, res, next) { if (req.session.user) { next(); } else { res.status(401).json({ error: 'Unauthorized' }); } }
 function isAdmin(req, res, next) { if (req.session.user && req.session.user.role === 'admin') { next(); } else { res.status(403).json({ error: 'Forbidden: Admin access required' }); } }
@@ -104,9 +117,9 @@ app.get('/api/shops/:shopId/inventory', isAuthenticated, async (req, res) => { c
  res.status(500).json({ error: err.message });
  }
 });
-app.post('/api/use-part', isAuthenticated, async (req, res) => { const { part_id, shop_id, mechanic_name } = req.body;
- if (!part_id || !shop_id || !mechanic_name) {
- return res.status(400).json({ error: "部品ID、工場ID、整備士名は必須です" });
+app.post('/api/use-part', isAuthenticated, async (req, res) => { const { part_id, shop_id, employee_id } = req.body;
+ if (!part_id || !shop_id || !employee_id) {
+ return res.status(400).json({ error: "部品ID、工場ID、従業員IDは必須です" });
  }
  if (req.session.user.role === 'shop_user' && parseInt(shop_id) !== req.session.user.shop_id) {
  return res.status(403).json({ error: 'Forbidden: You can only use parts from your own shop' });
@@ -118,7 +131,7 @@ app.post('/api/use-part', isAuthenticated, async (req, res) => { const { part_id
  await dbRun("ROLLBACK;");
  return res.status(400).json({ error: "在庫がないか、在庫更新に失敗しました。" });
  }
- await dbRun("INSERT INTO usage_history (part_id, shop_id, usage_time, mechanic_name) VALUES (?, ?, datetime('now', 'localtime'), ?)", [part_id, shop_id, mechanic_name]);
+ await dbRun("INSERT INTO usage_history (part_id, shop_id, usage_time, employee_id) VALUES (?, ?, datetime('now', 'localtime'), ?)", [part_id, shop_id, employee_id]);
  const row = await dbGet(`SELECT i.quantity, i.min_reorder_level, p.part_name FROM inventories i JOIN parts p ON i.part_id = p.id WHERE i.part_id = ? AND i.shop_id = ?`, [part_id, shop_id]);
  if (row && row.quantity < row.min_reorder_level) {
  console.log(`!!! 再発注アラート: [工場ID: ${shop_id}] ${row.part_name} が最低発注レベル (${row.min_reorder_level})を下回りました。現在の在庫: ${row.quantity}`);
@@ -136,7 +149,7 @@ app.get('/api/usage-history', isAuthenticated, isShopUser, async (req, res) => {
  const now = new Date();
  month = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
  }
- const sql = `SELECT h.id, p.part_number, p.part_name, h.usage_time, h.mechanic_name, h.status FROM usage_history h JOIN parts p ON h.part_id = p.id WHERE h.shop_id = ? AND STRFTIME('%Y-%m', h.usage_time) = ? ORDER BY h.usage_time DESC`;
+ const sql = `SELECT h.id, p.part_number, p.part_name, h.usage_time, e.name as employee_name, h.status FROM usage_history h JOIN parts p ON h.part_id = p.id JOIN employees e ON h.employee_id = e.id WHERE h.shop_id = ? AND STRFTIME('%Y-%m', h.usage_time) = ? ORDER BY h.usage_time DESC`;
  try {
  const rows = await dbAll(sql, [shop_id, month]);
  res.json(rows);
@@ -387,6 +400,70 @@ app.delete('/api/admin/users/:id', isAuthenticated, isAdmin, async (req, res) =>
  }
 });
 
+// --- Admin Employee Management ---
+app.get('/api/admin/employees', isAuthenticated, isAdmin, async (req, res) => {
+    const { shop_id } = req.query;
+    let sql = `SELECT e.id, e.name, e.shop_id, s.name as shop_name, e.is_active FROM employees e JOIN shops s ON e.shop_id = s.id`;
+    const params = [];
+    if (shop_id) {
+        sql += ' WHERE e.shop_id = ?';
+        params.push(shop_id);
+    }
+    sql += ' ORDER BY s.name, e.name';
+    try {
+        const rows = await dbAll(sql, params);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/admin/employees', isAuthenticated, isAdmin, async (req, res) => {
+    const { name, shop_id } = req.body;
+    if (!name || !shop_id) {
+        return res.status(400).json({ error: 'Employee name and shop_id are required' });
+    }
+    try {
+        const result = await dbRun("INSERT INTO employees (name, shop_id) VALUES (?, ?)", [name, shop_id]);
+        res.status(201).json({ id: result.lastID, name, shop_id });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/admin/employees/:id', isAuthenticated, isAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { name, shop_id, is_active } = req.body;
+    if (!name || !shop_id || is_active === undefined) {
+        return res.status(400).json({ error: 'Name, shop_id, and is_active are required' });
+    }
+    try {
+        const result = await dbRun("UPDATE employees SET name = ?, shop_id = ?, is_active = ? WHERE id = ?", [name, shop_id, is_active, id]);
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Employee not found' });
+        }
+        res.json({ message: 'Employee updated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/admin/employees/:id', isAuthenticated, isAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+        // We might want to check for usage history before deleting.
+        // For now, we'll just delete.
+        const result = await dbRun("DELETE FROM employees WHERE id = ?", [id]);
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Employee not found' });
+        }
+        res.json({ message: 'Employee deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 app.get('/api/admin/inventory/locations', isAuthenticated, isAdmin, async (req, res) => { try { const rows = await dbAll("SELECT DISTINCT location_info FROM inventories WHERE location_info IS NOT NULL AND location_info != '' ORDER BY location_info"); res.json(rows.map(r => r.location_info)); } catch (err) { res.status(500).json({ error: err.message }); } });
 app.get('/api/admin/all-inventory', isAuthenticated, isAdmin, async (req, res) => { const sql = `SELECT i.part_id, i.shop_id, s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, i.location_info FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id ORDER BY s.name, p.part_name`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
 app.post('/api/admin/inventory', isAuthenticated, isAdmin, async (req, res) => { const { shop_id, part_id, quantity, min_reorder_level, location_info } = req.body;
@@ -479,7 +556,7 @@ app.post('/api/admin/inventory/stocktake', isAuthenticated, isAdmin, async (req,
 });
 
 app.get('/api/admin/all-usage-history', isAuthenticated, isAdmin, async (req, res) => { const { startDate, endDate, shopId, partId } = req.query;
- let sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, h.usage_time, h.mechanic_name FROM usage_history h JOIN shops s ON h.shop_id = s.id JOIN parts p ON h.part_id = p.id`;
+ let sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, h.usage_time, e.name as employee_name FROM usage_history h JOIN shops s ON h.shop_id = s.id JOIN parts p ON h.part_id = p.id JOIN employees e ON h.employee_id = e.id`;
  const whereClauses = [];
  const params = [];
  if (startDate) {
