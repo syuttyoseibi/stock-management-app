@@ -1,0 +1,14 @@
+
+{
+  "name": "stock-management-app",
+  "version": "1.0.0",
+  "description": "Consignment Stock Management Tool for Auto Repair",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "sqlite3": "^5.1.7"
+  }
+}
