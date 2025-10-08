@@ -1,4 +1,3 @@
-
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const session = require('express-session');
@@ -9,7 +8,6 @@ const path = require('path');
 
 const dbPath = process.env.NODE_ENV === 'test' ? ':memory:' : (process.env.DATABASE_PATH || './data/stock.db');
 
-// Ensure the directory for the database exists before opening the database
 if (dbPath !== ':memory:') {
     const dbDir = path.dirname(dbPath);
     if (!fs.existsSync(dbDir)) {
@@ -36,26 +34,9 @@ app.use(session({
     cookie: { secure: false }
 }));
 
-const dbRun = (sql, params = []) => new Promise((resolve, reject) => {
-    db.run(sql, params, function(err) {
-        if (err) reject(err);
-        else resolve(this);
-    });
-});
-
-const dbGet = (sql, params = []) => new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-    });
-});
-
-const dbAll = (sql, params = []) => new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-    });
-});
+const dbRun = (sql, params = []) => new Promise((resolve, reject) => { db.run(sql, params, function(err) { if (err) reject(err); else resolve(this); }); });
+const dbGet = (sql, params = []) => new Promise((resolve, reject) => { db.get(sql, params, (err, row) => { if (err) reject(err); else resolve(row); }); });
+const dbAll = (sql, params = []) => new Promise((resolve, reject) => { db.all(sql, params, (err, rows) => { if (err) reject(err); else resolve(rows); }); });
 
 const initializeDatabase = async () => {
     await dbRun(`CREATE TABLE IF NOT EXISTS shops (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)`);
@@ -67,37 +48,40 @@ const initializeDatabase = async () => {
     await dbRun(`CREATE TABLE IF NOT EXISTS cancellation_history (id INTEGER PRIMARY KEY AUTOINCREMENT, usage_history_id INTEGER NOT NULL, cancelled_by_user_id INTEGER NOT NULL, cancelled_at TEXT NOT NULL, reason TEXT, FOREIGN KEY (usage_history_id) REFERENCES usage_history(id), FOREIGN KEY (cancelled_by_user_id) REFERENCES users(id))`);
     await dbRun(`CREATE TABLE IF NOT EXISTS stocktake_history (id INTEGER PRIMARY KEY AUTOINCREMENT, part_id INTEGER NOT NULL, shop_id INTEGER NOT NULL, user_id INTEGER NOT NULL, stocktake_time TEXT NOT NULL, quantity_before INTEGER NOT NULL, quantity_after INTEGER NOT NULL, notes TEXT, FOREIGN KEY (part_id) REFERENCES parts(id), FOREIGN KEY (shop_id) REFERENCES shops(id), FOREIGN KEY (user_id) REFERENCES users(id))`);
 
-    const users = await dbGet("SELECT COUNT(*) AS count FROM users");
-    if (users.count === 0) {
-        console.log("Seeding initial user data...");
+    const shopsCount = await dbGet("SELECT COUNT(*) AS count FROM shops");
+    if (shopsCount.count === 0) {
+        console.log("Seeding initial data...");
+        const shops = ["A整備工場", "B整備工場"];
+        const categories = ["エンジン消耗品", "ブレーキ関連", "電装・点火系", "冷却系", "足回り・駆動系", "外装・その他", "ケミカル類"];
+        const parts = [
+            { pn: "EO-001", name: "エンジンオイル 5W-30 SN 4L", cat: 1 }, { pn: "EO-002", name: "エンジンオイル 0W-20 SP 4L", cat: 1 },
+            { pn: "OF-001", name: "オイルフィルター トヨタ/ダイハツ用", cat: 1 }, { pn: "OF-002", name: "オイルフィルター ホンダ用", cat: 1 },
+            { pn: "BP-001", name: "ディスクブレーキパッド フロント 軽自動車用", cat: 2 }, { pn: "BP-002", name: "ディスクブレーキパッド フロント 普通車用", cat: 2 },
+            { pn: "BF-001", name: "ブレーキフルード DOT4 1L", cat: 2 }, { pn: "BT-001", name: "バッテリー 40B19L", cat: 3 },
+            { pn: "BT-002", name: "バッテリー 60B24L", cat: 3 }, { pn: "SP-001", name: "スパークプラグ 標準 (BKR5E-11)", cat: 3 },
+            { pn: "LLC-001", name: "ロングライフクーラント 緑 2L", cat: 4 }, { pn: "WB-001", name: "ワイパーブレード 450mm", cat: 6 },
+            { pn: "PC-001", name: "パーツクリーナー 840ml", cat: 7 }
+        ];
+
+        for (const shop of shops) { await dbRun("INSERT INTO shops (name) VALUES (?)", [shop]); }
+        for (const category of categories) { await dbRun("INSERT INTO categories (name) VALUES (?)", [category]); }
+        for (const part of parts) { await dbRun("INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?)", [part.pn, part.name, part.cat]); }
+
+        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [1, 1, 20, 5, "棚A-1"]);
+        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [3, 1, 15, 5, "棚A-2"]);
+        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [7, 1, 5, 2, "棚B-2"]);
+        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [8, 1, 8, 3, "棚C-1"]);
+        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [2, 2, 25, 5, "ラック1"]);
+        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [4, 2, 18, 5, "ラック1"]);
+
         const hash = await bcrypt.hash('password', saltRounds);
         await dbRun("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", ['admin', hash, 'admin']);
+        console.log("Initial data seeded.");
     }
 };
 
 // --- Auth APIs ---
-app.post('/api/login', async (req, res) => {
-    const { username, password } = req.body;
-    if (!username || !password) {
-        return res.status(400).json({ error: 'Username and password are required' });
-    }
-    try {
-        const user = await dbGet("SELECT * FROM users WHERE username = ?", [username]);
-        if (!user) {
-            return res.status(401).json({ error: 'Invalid credentials' });
-        }
-        const match = await bcrypt.compare(password, user.password_hash);
-        if (match) {
-            req.session.user = { id: user.id, username: user.username, role: user.role, shop_id: user.shop_id };
-            res.json({ message: 'Login successful', user: req.session.user });
-        } else {
-            res.status(401).json({ error: 'Invalid credentials' });
-        }
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
+app.post('/api/login', async (req, res) => { const { username, password } = req.body; if (!username || !password) { return res.status(400).json({ error: 'Username and password are required' }); } try { const user = await dbGet("SELECT * FROM users WHERE username = ?", [username]); if (!user) { return res.status(401).json({ error: 'Invalid credentials' }); } const match = await bcrypt.compare(password, user.password_hash); if (match) { req.session.user = { id: user.id, username: user.username, role: user.role, shop_id: user.shop_id }; res.json({ message: 'Login successful', user: req.session.user }); } else { res.status(401).json({ error: 'Invalid credentials' }); } } catch (err) { res.status(500).json({ error: 'Server error' }); } });
 app.post('/api/logout', (req, res) => { req.session.destroy(err => { if (err) { return res.status(500).json({ error: 'Could not log out' }); } res.clearCookie('connect.sid'); res.json({ message: 'Logout successful' }); }); });
 app.get('/api/auth/status', (req, res) => { if (req.session.user) { res.json({ loggedIn: true, user: req.session.user }); } else { res.json({ loggedIn: false }); } });
 
