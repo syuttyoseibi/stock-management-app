@@ -544,6 +544,15 @@ app.delete('/api/admin/users/:id', isAuthenticated, isAdmin, (req, res) => {
 });
 
 // --- Inventory Management (Admin) ---
+app.get('/api/admin/inventory/locations', isAuthenticated, isAdmin, (req, res) => {
+    db.all("SELECT DISTINCT location_info FROM inventories WHERE location_info IS NOT NULL AND location_info != '' ORDER BY location_info", [], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows.map(r => r.location_info));
+    });
+});
+
 app.get('/api/admin/all-inventory', isAuthenticated, isAdmin, (req, res) => {
     const sql = `
         SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, i.location_info
