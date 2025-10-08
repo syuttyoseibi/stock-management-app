@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -186,7 +187,7 @@
                 });
                 const result = await response.json();
                 if (response.ok) {
-                    showSuccess(`✅ ${partName} の使用を記録しました。残り在庫: ${result.stock_left}`);
+                    showSuccess(`✅ ${partName} の使用を記録しました。`);
                     loadInventory(currentUser.shop_id);
                     if (monthSelect.value === new Date().toISOString().slice(0, 7)) {
                         loadUsageHistory(monthSelect.value);

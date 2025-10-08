@@ -1,4 +1,3 @@
-//test
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const session = require('express-session');
@@ -669,4 +668,3 @@ app.get('/api/admin/all-usage-history', isAuthenticated, isAdmin, (req, res) => 
 
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
-
