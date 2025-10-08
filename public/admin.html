@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理者ダッシュボード - 委託在庫管理</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background-color: #f4f4f4; max-width: 1000px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header h1 { margin: 0; }
+        .header button { padding: 8px 15px; background-color: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .header button:hover { background-color: #c82333; }
+        .user-info { font-weight: bold; }
+        .section { background: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .section h2 { margin-top: 0; color: #007bff; }
+        #status-message { margin-top: 20px; padding: 10px; background-color: #e9ecef; border-radius: 5px; text-align: center; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>管理者ダッシュボード</h1>
+        <div>
+            <span class="user-info">ようこそ、<span id="username-display"></span>さん！ (ロール: <span id="role-display"></span>)</span>
+            <button onclick="logout()">ログアウト</button>
+        </div>
+    </div>
+
+    <div id="auth-status"></div>
+
+    <div class="section">
+        <h2>工場管理</h2>
+        <p>ここに工場の追加・編集・削除機能が入ります。</p>
+    </div>
+
+    <div class="section">
+        <h2>部品マスタ管理</h2>
+        <p>ここに部品の追加・編集・削除機能が入ります。</p>
+    </div>
+
+    <div class="section">
+        <h2>在庫管理</h2>
+        <p>ここに各工場の在庫数修正機能が入ります。</p>
+    の部分を `invStmt.run(3, 2, 5, 2, "ラック2");` に修正します。
+    </div>
+
+    <div class="section">
+        <h2>ユーザー管理</h2>
+        <p>ここに整備工場の従業員登録・管理機能が入ります。</p>
+    </div>
+
+    <div class="section">
+        <h2>使用履歴レポート</h2>
+        <p>ここに全工場の使用履歴レポート機能が入ります。</p>
+    </div>
+
+    <p id="status-message"></p>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', checkAuthAndLoadAdmin);
+
+        async function checkAuthAndLoadAdmin() {
+            const statusMessage = document.getElementById('status-message');
+            try {
+                const response = await fetch('/api/auth/status');
+                const data = await response.json();
+
+                if (data.loggedIn && data.user.role === 'admin') {
+                    document.getElementById('username-display').textContent = data.user.username;
+                    document.getElementById('role-display').textContent = data.user.role;
+                    statusMessage.textContent = '管理者としてログイン中。';
+                    statusMessage.style.backgroundColor = '#d4edda';
+                    statusMessage.style.color = '#155724';
+                } else {
+                    statusMessage.textContent = '管理者権限がありません。ログインページに戻ります。';
+                    statusMessage.style.backgroundColor = '#f8d7da';
+                    statusMessage.style.color = '#721c24';
+                    setTimeout(() => {
+                        window.location.href = '/login.html';
+                    }, 2000);
+                }
+            } catch (error) {
+                statusMessage.textContent = '認証状態の確認中にエラーが発生しました。ログインページに戻ります。';
+                statusMessage.style.backgroundColor = '#f8d7da';
+                statusMessage.style.color = '#721c24';
+                console.error('Auth check error:', error);
+                setTimeout(() => {
+                    window.location.href = '/login.html';
+                }, 2000);
+            }
+        }
+
+        async function logout() {
+            try {
+                const response = await fetch('/api/logout', { method: 'POST' });
+                if (response.ok) {
+                    window.location.href = '/login.html';
+                } else {
+                    alert('ログアウトに失敗しました。');
+                }
+            } catch (error) {
+                alert('通信エラーによりログアウトできませんでした。');
+                console.error('Logout error:', error);
+            }
+        }
+    </script>
+</body>
+</html>
