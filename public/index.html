@@ -27,6 +27,8 @@
         table { width: 100%; border-collapse: collapse; margin-top: 15px; background-color: white; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #f2f2f2; }
+        .success-message { color: #155724; background-color: #d4edda; padding: 10px; border-radius: 5px; margin-top: 10px; }
+        .error-message { color: #721c24; background-color: #f8d7da; padding: 10px; border-radius: 5px; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -41,6 +43,7 @@
     <div class="tab-buttons">
         <button class="active" onclick="showView('use-view', this)">部品使用</button>
         <button onclick="showView('history-view', this)">使用履歴</button>
+        <button onclick="showView('employee-view', this)">従業員管理</button>
     </div>
 
     <div id="use-view">
@@ -76,6 +79,29 @@
         </table>
     </div>
 
+    <div id="employee-view" class="hidden">
+        <h3>新しい従業員を追加</h3>
+        <div class="form-group" style="display: flex; gap: 10px; align-items: center;">
+            <input type="text" id="new-employee-name" placeholder="従業員名" style="flex-grow: 1;">
+            <button class="btn-primary" onclick="addEmployee()">追加</button>
+        </div>
+        <p id="add-employee-message"></p>
+        
+        <h3>登録済み従業員リスト</h3>
+        <table id="employees-table">
+            <thead>
+                <tr>
+                    <th>従業員名</th>
+                    <th>状態</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Employee list will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+
     <div id="status"></div>
 
     <!-- Cancellation Modal -->
@@ -88,6 +114,26 @@
             <div style="display:flex; justify-content:flex-end; gap:10px;">
                 <button class="btn-secondary" onclick="closeCancelModal()">閉じる</button>
                 <button class="btn-danger" onclick="submitCancellation()">取り消しを実行</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Employee Edit Modal -->
+    <div id="edit-employee-modal" style="display:none; position:fixed; z-index:100; left:0; top:0; width:100%; height:100%; overflow:auto; background-color:rgba(0,0,0,0.5);">
+        <div style="background-color:#fff; margin:15% auto; padding:20px; border:1px solid #888; width:80%; max-width:500px; border-radius:8px;">
+            <h2>従業員情報の編集</h2>
+            <input type="hidden" id="edit-employee-id">
+            <div class="form-group">
+                <label for="edit-employee-name">従業員名:</label>
+                <input type="text" id="edit-employee-name" style="width:100%; padding:10px;">
+            </div>
+            <div class="form-group">
+                <input type="checkbox" id="edit-employee-is-active">
+                <label for="edit-employee-is-active">有効な従業員</label>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn-secondary" onclick="closeEditEmployeeModal()">閉じる</button>
+                <button class="btn-primary" onclick="updateEmployee()">保存</button>
             </div>
         </div>
     </div>
@@ -173,6 +219,7 @@
         function showView(viewId, element) {
             document.getElementById('use-view').classList.add('hidden');
             document.getElementById('history-view').classList.add('hidden');
+            document.getElementById('employee-view').classList.add('hidden');
             document.getElementById(viewId).classList.remove('hidden');
 
             document.querySelectorAll('.tab-buttons button').forEach(button => button.classList.remove('active'));
@@ -208,6 +255,108 @@
                 });
             } catch (error) {
                 showError(error.message);
+            }
+        }
+
+        async function loadEmployees() {
+            try {
+                const response = await fetch('/api/employees');
+                if (!response.ok) throw new Error('従業員リストの取得に失敗しました');
+                const employees = await response.json();
+                
+                // Populate dropdown for using parts
+                employeeSelect.innerHTML = '<option value="">選択してください</option>';
+                employees.filter(e => e.is_active).forEach(emp => {
+                    const option = document.createElement('option');
+                    option.value = emp.id;
+                    option.textContent = emp.name;
+                    employeeSelect.appendChild(option);
+                });
+
+                // Populate table for employee management
+                const tableBody = document.querySelector('#employees-table tbody');
+                tableBody.innerHTML = '';
+                if (employees.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="3">従業員が登録されていません。</td></tr>';
+                    return;
+                }
+                employees.forEach(emp => {
+                    const row = tableBody.insertRow();
+                    row.insertCell().textContent = emp.name;
+                    const statusCell = row.insertCell();
+                    statusCell.textContent = emp.is_active ? '有効' : '無効';
+                    statusCell.style.color = emp.is_active ? 'green' : 'grey';
+                    row.insertCell().innerHTML = `<button class="btn-secondary" style="padding: 5px 10px;" onclick="openEditEmployeeModal(${emp.id}, '${emp.name}', ${emp.is_active})">編集</button>`;
+                });
+
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+
+        async function addEmployee() {
+            const nameInput = document.getElementById('new-employee-name');
+            const name = nameInput.value.trim();
+            if (!name) {
+                showMessage('add-employee-message', '従業員名を入力してください。', 'error');
+                return;
+            }
+            try {
+                const response = await fetch('/api/employees', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ name })
+                });
+                if (response.ok) {
+                    showMessage('add-employee-message', `従業員「${name}」を追加しました。`, 'success');
+                    nameInput.value = '';
+                    loadEmployees(); // Refresh both dropdown and table
+                } else {
+                    const data = await response.json();
+                    showMessage('add-employee-message', `エラー: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showMessage('add-employee-message', `通信エラー: ${error.message}`, 'error');
+            }
+        }
+
+        function openEditEmployeeModal(id, name, isActive) {
+            document.getElementById('edit-employee-id').value = id;
+            document.getElementById('edit-employee-name').value = name;
+            document.getElementById('edit-employee-is-active').checked = isActive;
+            document.getElementById('edit-employee-modal').style.display = 'block';
+        }
+
+        function closeEditEmployeeModal() {
+            document.getElementById('edit-employee-modal').style.display = 'none';
+        }
+
+        async function updateEmployee() {
+            const id = document.getElementById('edit-employee-id').value;
+            const name = document.getElementById('edit-employee-name').value.trim();
+            const is_active = document.getElementById('edit-employee-is-active').checked;
+
+            if (!name) {
+                alert('従業員名は必須です。');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/employees/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, is_active })
+                });
+
+                if (response.ok) {
+                    closeEditEmployeeModal();
+                    loadEmployees(); // Refresh list
+                } else {
+                    const data = await response.json();
+                    alert(`更新エラー: ${data.error}`);
+                }
+            } catch (error) {
+                alert(`通信エラー: ${error.message}`);
             }
         }
 
@@ -335,6 +484,15 @@
             statusDiv.textContent = message;
             statusDiv.style.backgroundColor = '#f8d7da';
             statusDiv.style.color = '#721c24';
+        }
+
+        function showMessage(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.textContent = message;
+                element.className = type === 'success' ? 'success-message' : 'error-message';
+                setTimeout(() => { element.textContent = ''; element.className = ''; }, 3000);
+            }
         }
     </script>
 </body>

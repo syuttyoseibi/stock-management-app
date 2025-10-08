@@ -89,10 +89,50 @@ app.get('/api/auth/status', (req, res) => { if (req.session.user) { res.json({ l
 app.get('/api/employees', isAuthenticated, isShopUser, async (req, res) => {
     try {
         const employees = await dbAll(
-            "SELECT id, name FROM employees WHERE shop_id = ? AND is_active = 1 ORDER BY name",
+            "SELECT id, name, is_active FROM employees WHERE shop_id = ? ORDER BY name",
             [req.session.user.shop_id]
         );
         res.json(employees);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/employees', isAuthenticated, isShopUser, async (req, res) => {
+    const { name } = req.body;
+    const shop_id = req.session.user.shop_id;
+    if (!name) {
+        return res.status(400).json({ error: 'Employee name is required' });
+    }
+    try {
+        const result = await dbRun("INSERT INTO employees (name, shop_id) VALUES (?, ?)", [name, shop_id]);
+        res.status(201).json({ id: result.lastID, name, shop_id });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/employees/:id', isAuthenticated, isShopUser, async (req, res) => {
+    const { id } = req.params;
+    const { name, is_active } = req.body;
+    const shop_id = req.session.user.shop_id;
+
+    if (!name || is_active === undefined) {
+        return res.status(400).json({ error: 'Name and is_active are required' });
+    }
+
+    try {
+        // Ensure the employee belongs to the user's shop before updating
+        const employee = await dbGet("SELECT id FROM employees WHERE id = ? AND shop_id = ?", [id, shop_id]);
+        if (!employee) {
+            return res.status(404).json({ error: 'Employee not found in your shop' });
+        }
+
+        const result = await dbRun("UPDATE employees SET name = ?, is_active = ? WHERE id = ?", [name, is_active, id]);
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Employee not found' });
+        }
+        res.json({ message: 'Employee updated successfully' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
