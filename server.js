@@ -310,4 +310,146 @@ app.post('/api/use-part', isAuthenticated, (req, res) => { // Protected
 });
 
 
+
+// -------------------------------------------------
+// API (Admin Dashboard) - All protected by isAdmin middleware
+// -------------------------------------------------
+
+// --- Shop Management (Admin) ---
+app.get('/api/admin/shops', isAuthenticated, isAdmin, (req, res) => {
+    db.all("SELECT id, name FROM shops ORDER BY id", [], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows);
+    });
+});
+
+app.post('/api/admin/shops', isAuthenticated, isAdmin, (req, res) => {
+    const { name } = req.body;
+    if (!name) {
+        return res.status(400).json({ error: 'Shop name is required' });
+    }
+    db.run("INSERT INTO shops (name) VALUES (?)", [name], function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ id: this.lastID, name });
+    });
+});
+
+// --- Part Management (Admin) ---
+app.get('/api/admin/parts', isAuthenticated, isAdmin, (req, res) => {
+    db.all("SELECT id, part_number, part_name FROM parts ORDER BY id", [], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows);
+    });
+});
+
+app.post('/api/admin/parts', isAuthenticated, isAdmin, (req, res) => {
+    const { part_number, part_name } = req.body;
+    if (!part_number || !part_name) {
+        return res.status(400).json({ error: 'Part number and name are required' });
+    }
+    db.run("INSERT INTO parts (part_number, part_name) VALUES (?, ?)", [part_number, part_name], function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ id: this.lastID, part_number, part_name });
+    });
+});
+
+// --- User Management (Admin) ---
+app.get('/api/admin/users', isAuthenticated, isAdmin, (req, res) => {
+    db.all("SELECT id, username, role, shop_id FROM users ORDER BY id", [], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows);
+    });
+});
+
+app.post('/api/admin/users', isAuthenticated, isAdmin, (req, res) => {
+    const { username, password, role, shop_id } = req.body;
+    if (!username || !password || !role) {
+        return res.status(400).json({ error: 'Username, password, and role are required' });
+    }
+    if (role === 'shop_user' && !shop_id) {
+        return res.status(400).json({ error: 'Shop ID is required for shop users' });
+    }
+
+    bcrypt.hash(password, saltRounds, (err, hash) => {
+        if (err) {
+            return res.status(500).json({ error: 'Error hashing password' });
+        }
+        const finalShopId = role === 'admin' ? null : shop_id;
+        db.run("INSERT INTO users (username, password_hash, role, shop_id) VALUES (?, ?, ?, ?)", [username, hash, role, finalShopId], function(err) {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({ id: this.lastID, username, role, shop_id: finalShopId });
+        });
+    });
+});
+
+// --- Inventory Management (Admin) ---
+app.get('/api/admin/all-inventory', isAuthenticated, isAdmin, (req, res) => {
+    const sql = `
+        SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, i.location_info
+        FROM inventories i
+        JOIN shops s ON i.shop_id = s.id
+        JOIN parts p ON i.part_id = p.id
+        ORDER BY s.name, p.part_name
+    `;
+    db.all(sql, [], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows);
+    });
+});
+
+app.post('/api/admin/inventory', isAuthenticated, isAdmin, (req, res) => {
+    const { shop_id, part_id, quantity, min_reorder_level, location_info } = req.body;
+    if (!shop_id || !part_id || quantity === undefined || min_reorder_level === undefined) {
+        return res.status(400).json({ error: 'Shop, part, quantity, and min_reorder_level are required' });
+    }
+
+    const sql = `
+        INSERT INTO inventories (shop_id, part_id, quantity, min_reorder_level, location_info)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(part_id, shop_id) DO UPDATE SET
+            quantity = excluded.quantity,
+            min_reorder_level = excluded.min_reorder_level,
+            location_info = excluded.location_info
+    `;
+    db.run(sql, [shop_id, part_id, quantity, min_reorder_level, location_info || ''], function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ message: 'Inventory updated successfully' });
+    });
+});
+
+// --- Reports (Admin) ---
+app.get('/api/admin/all-usage-history', isAuthenticated, isAdmin, (req, res) => {
+    const sql = `
+        SELECT s.name AS shop_name, p.part_number, p.part_name, h.usage_time, h.mechanic_name
+        FROM usage_history h
+        JOIN shops s ON h.shop_id = s.id
+        JOIN parts p ON h.part_id = p.id
+        ORDER BY h.usage_time DESC
+    `;
+    db.all(sql, [], (err, rows) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.json(rows);
+    });
+});
+
+
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+
