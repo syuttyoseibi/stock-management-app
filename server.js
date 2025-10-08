@@ -19,7 +19,7 @@ app.use(session({
     cookie: { secure: false } // For http, set to true if you use https
 }));
 
-// --- データベースと初期データの準備 (ユーザー管理対応) ---
+// ---データベースと初期データの準備 (ユーザー管理対応) ---
 db.serialize(() => {
     // 1. 工場テーブル
     db.run(`CREATE TABLE IF NOT EXISTS shops (
