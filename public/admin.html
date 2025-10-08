@@ -258,7 +258,7 @@
         let allUsers = [];
 
         async function checkAuthAndLoadAdmin() {
-            const statusMessage = document.getElementById('status-message');
+            const statusMessage = document.getElementById('auth-status');
             try {
                 const response = await fetch('/api/auth/status');
                 const data = await response.json();
@@ -581,7 +581,7 @@
                     row.insertCell().textContent = item.mechanic_name;
                 });
             } catch (error) {
-                showMessage('status-message', `使用履歴の読み込みエラー: ${error.message}`, 'error');
+                showMessage('auth-status', `使用履歴の読み込みエラー: ${error.message}`, 'error');
             }
         }
 
