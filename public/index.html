@@ -29,6 +29,48 @@
         th { background-color: #f2f2f2; }
         .success-message { color: #155724; background-color: #d4edda; padding: 10px; border-radius: 5px; margin-top: 10px; }
         .error-message { color: #721c24; background-color: #f8d7da; padding: 10px; border-radius: 5px; margin-top: 10px; }
+
+        .category-header {
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            padding: 18px;
+            width: 100%;
+            border: none;
+            text-align: left;
+            outline: none;
+            font-size: 18px;
+            transition: 0.4s;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        .category-header:hover, .category-header.active {
+            background-color: #0056b3;
+        }
+
+        .category-panel {
+            padding: 0 18px;
+            background-color: white;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.2s ease-out;
+            border-radius: 0 0 8px 8px;
+            border: 1px solid #ddd;
+            border-top: none;
+        }
+
+        .category-header::after {
+            content: '\002B'; /* Unicode character for "+" sign */
+            font-size: 20px;
+            color: white;
+            float: right;
+            margin-left: 5px;
+        }
+
+        .category-header.active::after {
+            content: "\2212"; /* Unicode character for "-" sign */
+        }
     </style>
 </head>
 <body>
@@ -242,17 +284,54 @@
                     partListDiv.innerHTML = '<p>この工場の在庫はありません。</p>';
                     return;
                 }
-                inventory.forEach(part => {
-                    const item = document.createElement('div');
-                    item.className = 'part-item';
-                    item.innerHTML = `
-                        <span>${part.part_name} (品番: ${part.part_number}, 在庫: ${part.quantity})</span>
-                        <button class="use-button" onclick="usePart(${part.id}, '${part.part_name}')" ${part.quantity <= 0 ? 'disabled' : ''}>
-                            ${part.quantity <= 0 ? '在庫なし' : '使用'}
-                        </button>
-                    `;
-                    partListDiv.appendChild(item);
-                });
+
+                // Group parts by category
+                const partsByCategory = inventory.reduce((acc, part) => {
+                    const category = part.category_name || 'カテゴリーなし';
+                    if (!acc[category]) {
+                        acc[category] = [];
+                    }
+                    acc[category].push(part);
+                    return acc;
+                }, {});
+
+                // Generate HTML for each category
+                for (const category in partsByCategory) {
+                    const categoryWrapper = document.createElement('div');
+                    
+                    const header = document.createElement('button');
+                    header.className = 'category-header';
+                    header.textContent = category;
+                    categoryWrapper.appendChild(header);
+
+                    const panel = document.createElement('div');
+                    panel.className = 'category-panel';
+
+                    partsByCategory[category].forEach(part => {
+                        const item = document.createElement('div');
+                        item.className = 'part-item';
+                        item.innerHTML = `
+                            <span>${part.part_name} (品番: ${part.part_number}, 在庫: ${part.quantity})</span>
+                            <button class="use-button" onclick="usePart(${part.id}, '${part.part_name}')" ${part.quantity <= 0 ? 'disabled' : ''}>
+                                ${part.quantity <= 0 ? '在庫なし' : '使用'}
+                            </button>
+                        `;
+                        panel.appendChild(item);
+                    });
+
+                    categoryWrapper.appendChild(panel);
+                    partListDiv.appendChild(categoryWrapper);
+
+                    header.addEventListener('click', function() {
+                        this.classList.toggle('active');
+                        const currentPanel = this.nextElementSibling;
+                        if (currentPanel.style.maxHeight) {
+                            currentPanel.style.maxHeight = null;
+                        } else {
+                            currentPanel.style.maxHeight = currentPanel.scrollHeight + "px";
+                        }
+                    });
+                }
             } catch (error) {
                 showError(error.message);
             }

@@ -149,7 +149,23 @@ app.get('/api/shops/:shopId/inventory', isAuthenticated, async (req, res) => { c
  if (req.session.user.role === 'shop_user' && parseInt(shopId) !== req.session.user.shop_id) {
  return res.status(403).json({ error: "Forbidden: You can only view your own shop's inventory" });
  }
- const sql = `SELECT p.id, p.part_number, p.part_name, i.quantity, i.location_info FROM parts p JOIN inventories i ON p.id = i.part_id WHERE i.shop_id = ? ORDER BY p.part_name;`;
+ const sql = `
+        SELECT 
+            p.id, 
+            p.part_number, 
+            p.part_name, 
+            c.id as category_id, 
+            c.name as category_name, 
+            i.quantity, 
+            i.location_info 
+        FROM 
+            parts p 
+        JOIN 
+            inventories i ON p.id = i.part_id 
+        LEFT JOIN 
+            categories c ON p.category_id = c.id 
+        WHERE i.shop_id = ? 
+        ORDER BY c.name, p.part_name;`;
  try {
  const rows = await dbAll(sql, [shopId]);
  res.json(rows);
