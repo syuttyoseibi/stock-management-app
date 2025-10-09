@@ -775,11 +775,20 @@ app.post('/api/admin/csv/guess-mapping', isAuthenticated, isAdmin, async (req, r
 app.post('/api/admin/csv/process-advanced', isAuthenticated, isAdmin, upload.single('csvfile'), async (req, res) => {
     console.log('[AI Import] /process-advanced API endpoint hit.'); // Log entry point
     if (!req.file) {
+        console.error('[AI Import] No file uploaded.');
         return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
     }
     if (!aiModel) {
         return res.status(500).json({ error: 'AIモデルが初期化されていません。APIキーを確認してください。' });
     }
+
+    const generateContentWithTimeout = (prompt, timeout = 15000) => {
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('AIへの問い合わせがタイムアウトしました。')), timeout)
+        );
+        const generationPromise = aiModel.generateContent(prompt);
+        return Promise.race([generationPromise, timeoutPromise]);
+    };
 
     const csvString = req.file.buffer.toString('utf8');
     const lines = csvString.split(/\r?\n/).filter(line => line && line.trim());
@@ -814,7 +823,7 @@ app.post('/api/admin/csv/process-advanced', isAuthenticated, isAdmin, upload.sin
         `;
 
         try {
-            const result = await aiModel.generateContent(prompt);
+            const result = await generateContentWithTimeout(prompt);
             const responseText = result.response.text().replace(/^```json\n/, '').replace(/\n```$/, '');
             const aiResponse = JSON.parse(responseText);
 
