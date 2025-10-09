@@ -839,6 +839,7 @@ app.post('/api/admin/csv/process-advanced', isAuthenticated, isAdmin, upload.sin
         } catch (err) {
             errorCount++;
             errors.push(`行 ${index + 1}: AIによる解析またはデータ処理に失敗しました。(${err.message})`);
+            console.error(`[AI Import] Error processing line ${index + 1}:`, err);
         }
     }
 
