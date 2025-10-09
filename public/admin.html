@@ -639,12 +639,6 @@
                 });
                 aiCsvMapping = newMapping;
 
-                // Check if essential fields are mapped for parts import
-                if (aiCsvImportType === 'parts' && !aiCsvMapping.part_number) {
-                    showMessage('ai-csv-mapping-message', '「part_number」は必ず割り当ててください。', 'error');
-                    return;
-                }
-
                 renderPreviewTable();
                 document.getElementById(`ai-csv-step-${currentStep}`).classList.add('hidden');
                 document.getElementById(`ai-csv-step-${currentStep + 1}`).classList.remove('hidden');
