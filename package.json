@@ -1,4 +1,3 @@
-
 {
   "name": "stock-management-app",
   "version": "1.0.0",
@@ -9,11 +8,14 @@
     "test": "jest"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "sqlite3": "^5.1.7",
+    "@google/generative-ai": "^0.24.1",
     "bcrypt": "^5.1.1",
+    "cookie-parser": "^1.4.6",
+    "dotenv": "^17.2.3",
+    "express": "^4.18.2",
     "express-session": "^1.18.0",
-    "cookie-parser": "^1.4.6"
+    "multer": "^2.0.2",
+    "sqlite3": "^5.1.7"
   },
   "devDependencies": {
     "jest": "^29.7.0",

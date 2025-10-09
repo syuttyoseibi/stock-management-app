@@ -1,10 +1,21 @@
 const express = require('express');
+require('dotenv').config(); // Load environment variables from .env file
 const sqlite3 = require('sqlite3').verbose();
 const session = require('express-session');
 const cookieParser = require('cookie-parser');
 const bcrypt = require('bcrypt');
 const fs = require('fs');
 const path = require('path');
+const multer = require('multer');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+// --- Gemini AI Setup ---
+const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
+const aiModel = genAI ? genAI.getGenerativeModel({ model: "gemini-pro"}) : null;
+
+// --- Multer Setup for CSV upload ---
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
 const dbPath = process.env.NODE_ENV === 'test' ? ':memory:' : (process.env.DATABASE_PATH || './data/stock.db');
 
@@ -664,11 +675,153 @@ app.get('/api/admin/all-usage-history', isAuthenticated, isAdmin, async (req, re
  }
 });
 app.get('/api/admin/reorder-list', isAuthenticated, isAdmin, async (req, res) => { const sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id WHERE i.quantity < i.min_reorder_level ORDER BY s.name, shortage DESC, p.part_name`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.get('/api/admin/reorder-list/csv', isAuthenticated, isAdmin, async (req, res) => { const sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id WHERE i.quantity < i.min_reorder_level ORDER BY s.name, shortage DESC, p.part_name`; try { const rows = await dbAll(sql); if (!rows || rows.length === 0) { return res.status(404).send('No items to export.'); } const header = '工場名,品番,部品名,現在庫数,最低発注レベル,不足数\n'; const csvRows = rows.map(row => `"${row.shop_name}","${row.part_number}","${row.part_name}",${row.quantity},${row.min_reorder_level},${row.shortage}`);  const csvString = header + csvRows.join('\n');
+app.get('/api/admin/reorder-list/csv', isAuthenticated, isAdmin, async (req, res) => { const sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id WHERE i.quantity < i.min_reorder_level ORDER BY s.name, shortage DESC, p.part_name`; try { const rows = await dbAll(sql); if (!rows || rows.length === 0) { return res.status(404).send('No items to export.'); } const header = '工場名,品番,部品名,現在庫数,最低発注レベル,不足数\n'; const csvRows = rows.map(row => `"${row.shop_name}","${row.part_number}","${row.part_name}",${row.quantity},${row.min_reorder_level},${row.shortage}`); const csvString = header + csvRows.join('\n');
         const bom = '\uFEFF';
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="reorder-list.csv"');
         res.status(200).send(Buffer.from(bom + csvString, 'utf8')); } catch (err) { res.status(500).json({ error: err.message }); } });
+
+// --- AI CSV Import APIs ---
+app.post('/api/admin/csv/analyze', isAuthenticated, isAdmin, upload.single('csvfile'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded.' });
+    }
+
+    try {
+        const csvString = req.file.buffer.toString('utf8');
+        const lines = csvString.split(/\r?\n/);
+        
+        const header = lines[0] ? lines[0].split(',').map(h => h.trim()) : [];
+        const sampleData = lines[1] ? lines[1].split(',').map(d => d.trim()) : [];
+
+        if (header.length === 0) {
+            return res.status(400).json({ error: 'CSV file is empty or has no header.' });
+        }
+
+        res.json({ header, sampleData });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to analyze CSV file.', details: error.message });
+    }
+});
+
+app.post('/api/admin/csv/guess-mapping', isAuthenticated, isAdmin, async (req, res) => {
+    const { header, importType } = req.body;
+
+    if (!aiModel) {
+        return res.status(500).json({ error: 'AI model is not initialized. Check GEMINI_API_KEY.' });
+    }
+    if (!header || !importType) {
+        return res.status(400).json({ error: 'CSV header and importType are required.' });
+    }
+
+    let systemFields;
+    let prompt;
+
+    if (importType === 'parts') {
+        systemFields = ["part_number", "part_name", "category_name"];
+        prompt = `You are a data import assistant for a stock management system. Given the CSV header columns, map them to the system's required fields for importing parts. The system fields are: ${systemFields.join(', ')}. The CSV header is: [${header.join(', ')}]. Respond with a JSON object where keys are the system fields and values are the corresponding header columns. If no suitable column is found for a system field, use null.`;
+    } else if (importType === 'inventory') {
+        systemFields = ["part_number", "shop_name", "quantity", "min_reorder_level", "location_info"];
+        prompt = `You are a data import assistant for a stock management system. Given the CSV header columns, map them to the system's required fields for importing inventory. The system fields are: ${systemFields.join(', ')}. The CSV header is: [${header.join(', ')}]. Respond with a JSON object where keys are the system fields and values are the corresponding header columns. If no suitable column is found for a system field, use null.`;
+    } else {
+        return res.status(400).json({ error: 'Invalid importType.' });
+    }
+
+    try {
+        const result = await aiModel.generateContent(prompt);
+        const response = await result.response;
+        let text = response.text();
+        
+        // Clean up the response to get a valid JSON string
+        text = text.replace(/^```json\n/, '').replace(/\n```$/, '');
+        
+        const guessedMap = JSON.parse(text);
+        res.json(guessedMap);
+
+    } catch (error) {
+        console.error('Gemini API error:', error);
+        res.status(500).json({ error: 'Failed to get mapping from AI.', details: error.message });
+    }
+});
+
+app.post('/api/admin/csv/import', isAuthenticated, isAdmin, upload.single('csvfile'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded.' });
+    }
+    const { mapping, importType } = req.body;
+    if (!mapping || !importType) {
+        return res.status(400).json({ error: 'Mapping and importType are required.' });
+    }
+
+    const columnMap = JSON.parse(mapping);
+    const csvString = req.file.buffer.toString('utf8');
+    const lines = csvString.split(/\r?\n/).filter(line => line); // Filter out empty lines
+    const header = lines.shift().split(',').map(h => h.trim());
+
+    // Create a map of system_field -> csv_column_index
+    const headerIndices = {};
+    for (const field in columnMap) {
+        if (columnMap[field]) {
+            headerIndices[field] = header.indexOf(columnMap[field]);
+        }
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+    const errors = [];
+
+    try {
+        await dbRun("BEGIN TRANSACTION;");
+
+        for (const [index, line] of lines.entries()) {
+            const row = line.split(',').map(d => d.trim());
+            try {
+                if (importType === 'parts') {
+                    const part_number = row[headerIndices.part_number];
+                    if (!part_number) {
+                        throw new Error('part_number is missing.');
+                    }
+                    const part_name = headerIndices.part_name !== -1 ? row[headerIndices.part_name] : part_number;
+                    const category_name = headerIndices.category_name !== -1 ? row[headerIndices.category_name] : null;
+                    let categoryId = null;
+                    if (category_name) {
+                        const category = await dbGet("SELECT id FROM categories WHERE name = ?", [category_name]);
+                        if (category) {
+                            categoryId = category.id;
+                        } else {
+                            const result = await dbRun("INSERT INTO categories (name) VALUES (?)", [category_name]);
+                            categoryId = result.lastID;
+                        }
+                    }
+                    const sql = `INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?) ON CONFLICT(part_number) DO UPDATE SET part_name = excluded.part_name, category_id = excluded.category_id;`;
+                    await dbRun(sql, [part_number, part_name, categoryId]);
+                } else if (importType === 'inventory') {
+                    // Implementation for inventory import can be added here later
+                }
+                successCount++;
+            } catch (err) {
+                errorCount++;
+                errors.push(`Line ${index + 2}: ${err.message}`);
+            }
+        }
+
+        if (errorCount > 0) {
+            await dbRun("ROLLBACK;");
+            return res.status(400).json({ 
+                message: `Import finished with errors. No data was imported.`,
+                error: 'Import failed', 
+                details: errors 
+            });
+        }
+
+        await dbRun("COMMIT;");
+        res.json({ message: `Successfully imported ${successCount} records.` });
+
+    } catch (err) {
+        await dbRun("ROLLBACK;");
+        res.status(500).json({ error: 'A critical error occurred during the import transaction.', details: err.message });
+    }
+});
 
 // --- Server Start ---
 const startServer = async () => {

@@ -161,6 +161,7 @@
                 <input type="file" id="csv-file-input" accept=".csv">
             </div>
             <button class="btn-primary" onclick="importPartsCSV()">インポート実行</button>
+            <button class="btn-secondary" onclick="openAiCsvImportModal('parts')">AIアシストでインポート</button>
             <p id="import-parts-message"></p>
 
             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -485,8 +486,48 @@
         </div>
     </div>
 
+    <div id="ai-csv-import-modal" class="modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <span class="close-button" onclick="closeAiCsvImportModal()">&times;</span>
+            <h2>AIアシスト CSVインポート</h2>
+            
+            <!-- Step 1: File Upload -->
+            <div id="ai-csv-step-1">
+                <h4>ステップ1: CSVファイルのアップロード</h4>
+                <div class="form-group">
+                    <label for="ai-csv-file-input">インポートするCSVファイルを選択してください:</label>
+                    <input type="file" id="ai-csv-file-input" accept=".csv">
+                </div>
+                <p id="ai-csv-upload-message"></p>
+                <button class="btn-primary" onclick="aiCsvWizardNext(1)">次へ: 列の対応付け</button>
+            </div>
+
+            <!-- Step 2: Column Mapping -->
+            <div id="ai-csv-step-2" class="hidden">
+                <h4>ステップ2: 列の対応付け</h4>
+                <p>AIがCSVの列をシステムの項目に自動で割り当てました。内容を確認し、必要であれば修正してください。</p>
+                <div id="ai-csv-mapping-table-container"></div>
+                <p id="ai-csv-mapping-message"></p>
+                <button class="btn-secondary" onclick="aiCsvWizardBack(2)">戻る</button>
+                <button class="btn-primary" onclick="aiCsvWizardNext(2)">次へ: 内容のプレビュー</button>
+            </div>
+
+            <!-- Step 3: Preview and Import -->
+            <div id="ai-csv-step-3" class="hidden">
+                <h4>ステップ3: 内容のプレビューと実行</h4>
+                <p>以下の内容でインポートを実行します。よろしいですか？（最大10件までプレビュー）</p>
+                <div id="ai-csv-preview-table-container"></div>
+                <p id="ai-csv-import-result-message"></p>
+                <button class="btn-secondary" onclick="aiCsvWizardBack(3)">戻る</button>
+                <button class="btn-primary" onclick="executeAiCsvImport()">この内容でインポートを実行</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let currentUser = null;
+        let aiCsvImportType = null; // 'parts' or 'inventory'
+
         document.addEventListener('DOMContentLoaded', checkAuthAndLoadAdmin);
 
         let allShops = [];
@@ -495,6 +536,12 @@
         let allCategories = [];
         let allInventoryData = [];
         let allEmployees = [];
+
+        // --- AI CSV Import State ---
+        let aiCsvFile = null;
+        let aiCsvHeader = [];
+        let aiCsvSample = [];
+        let aiCsvMapping = {};
 
         // --- Core Functions ---
         async function checkAuthAndLoadAdmin() {
@@ -515,6 +562,192 @@
                 statusMessage.textContent = '認証状態の確認中にエラーが発生しました。';
                 console.error('Auth check error:', error);
             }
+        }
+
+        function openAiCsvImportModal(type) {
+            aiCsvImportType = type;
+            // Reset modal state
+            aiCsvFile = null;
+            aiCsvHeader = [];
+            aiCsvSample = [];
+            aiCsvMapping = {};
+            document.getElementById('ai-csv-file-input').value = '';
+            document.getElementById('ai-csv-upload-message').textContent = '';
+            document.getElementById('ai-csv-mapping-table-container').innerHTML = '';
+            document.getElementById('ai-csv-mapping-message').textContent = '';
+            document.getElementById('ai-csv-preview-table-container').innerHTML = '';
+            document.getElementById('ai-csv-import-result-message').textContent = '';
+            // Reset to step 1
+            document.getElementById('ai-csv-step-1').classList.remove('hidden');
+            document.getElementById('ai-csv-step-2').classList.add('hidden');
+            document.getElementById('ai-csv-step-3').classList.add('hidden');
+            document.getElementById('ai-csv-import-modal').style.display = 'block';
+        }
+
+        function closeAiCsvImportModal() {
+            document.getElementById('ai-csv-import-modal').style.display = 'none';
+        }
+
+        async function aiCsvWizardNext(currentStep) {
+            if (currentStep === 1) {
+                // --- Step 1 to 2: Analyze and Guess Mapping ---
+                const fileInput = document.getElementById('ai-csv-file-input');
+                aiCsvFile = fileInput.files[0];
+                if (!aiCsvFile) {
+                    showMessage('ai-csv-upload-message', 'CSVファイルを選択してください。', 'error');
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('csvfile', aiCsvFile);
+
+                try {
+                    showMessage('ai-csv-upload-message', 'CSVファイルを解析中...', 'info');
+                    const analyzeRes = await fetch('/api/admin/csv/analyze', { method: 'POST', body: formData });
+                    if (!analyzeRes.ok) throw new Error((await analyzeRes.json()).error);
+                    const analyzedData = await analyzeRes.json();
+                    aiCsvHeader = analyzedData.header;
+                    aiCsvSample = analyzedData.sampleData;
+
+                    showMessage('ai-csv-mapping-message', 'AIが列の対応付けを推測中...', 'info');
+                    document.getElementById(`ai-csv-step-${currentStep}`).classList.add('hidden');
+                    document.getElementById(`ai-csv-step-${currentStep + 1}`).classList.remove('hidden');
+
+                    const guessRes = await fetch('/api/admin/csv/guess-mapping', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ header: aiCsvHeader, importType: aiCsvImportType })
+                    });
+                    if (!guessRes.ok) throw new Error(`AIによる推測に失敗しました: ${(await guessRes.json()).error}`);
+                    aiCsvMapping = await guessRes.json();
+                    
+                    renderMappingTable(aiCsvHeader, aiCsvMapping);
+                    showMessage('ai-csv-mapping-message', 'AIによる割り当てが完了しました。内容を確認・修正してください。', 'success');
+
+                } catch (error) {
+                    showMessage('ai-csv-upload-message', error.message, 'error');
+                }
+
+            } else if (currentStep === 2) {
+                // --- Step 2 to 3: Show Preview ---
+                // Collect the current mapping from the select elements
+                const newMapping = {};
+                const selects = document.querySelectorAll('.mapping-select');
+                selects.forEach(sel => {
+                    const systemField = sel.id.replace('map-select-', '');
+                    newMapping[systemField] = sel.value;
+                });
+                aiCsvMapping = newMapping;
+
+                // Check if essential fields are mapped for parts import
+                if (aiCsvImportType === 'parts' && !aiCsvMapping.part_number) {
+                    showMessage('ai-csv-mapping-message', '「part_number」は必ず割り当ててください。', 'error');
+                    return;
+                }
+
+                renderPreviewTable();
+                document.getElementById(`ai-csv-step-${currentStep}`).classList.add('hidden');
+                document.getElementById(`ai-csv-step-${currentStep + 1}`).classList.remove('hidden');
+            }
+        }
+
+        function aiCsvWizardBack(currentStep) {
+            document.getElementById(`ai-csv-step-${currentStep}`).classList.add('hidden');
+            document.getElementById(`ai-csv-step-${currentStep - 1}`).classList.remove('hidden');
+        }
+
+        async function executeAiCsvImport() {
+            if (!aiCsvFile || !aiCsvMapping) {
+                showMessage('ai-csv-import-result-message', 'ファイルまたはマッピング情報が見つかりません。', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('csvfile', aiCsvFile);
+            formData.append('mapping', JSON.stringify(aiCsvMapping));
+            formData.append('importType', aiCsvImportType);
+
+            try {
+                showMessage('ai-csv-import-result-message', 'インポート処理を実行中... これには数分かかる場合があります。', 'info');
+
+                const response = await fetch('/api/admin/csv/import', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showMessage('ai-csv-import-result-message', result.message, 'success');
+                    // Refresh relevant data and close modal after a delay
+                    if (aiCsvImportType === 'parts') {
+                        loadParts();
+                        loadCategories();
+                    } else if (aiCsvImportType === 'inventory') {
+                        loadAllInventory();
+                    }
+                    setTimeout(closeAiCsvImportModal, 2000);
+                } else {
+                    const errorDetails = result.details ? result.details.join('\n') : (result.error || '不明なエラー');
+                    showMessage('ai-csv-import-result-message', `${result.message}\n${errorDetails}`, 'error');
+                }
+            } catch (error) {
+                showMessage('ai-csv-import-result-message', `通信エラー: ${error.message}`, 'error');
+            }
+        }
+
+        function renderMappingTable(header, guessedMap) {
+            const container = document.getElementById('ai-csv-mapping-table-container');
+            let systemFields = aiCsvImportType === 'parts' 
+                ? ["part_number", "part_name", "category_name"] 
+                : ["part_number", "shop_name", "quantity", "min_reorder_level", "location_info"];
+
+            let table = '<table class="table"><thead><tr><th>システムの項目</th><th>CSVの列</th></tr></thead><tbody>';
+            systemFields.forEach(field => {
+                table += `<tr>
+                    <td>${field}</td>
+                    <td>
+                        <select id="map-select-${field}" class="mapping-select">
+                            <option value="">-- 割り当てない --</option>
+                            ${header.map(h => `<option value="${h}" ${guessedMap[field] === h ? 'selected' : ''}>${h}</option>`).join('')}
+                        </select>
+                    </td>
+                </tr>`;
+            });
+            table += '</tbody></table>';
+            container.innerHTML = table;
+        }
+
+        function renderPreviewTable() {
+            const container = document.getElementById('ai-csv-preview-table-container');
+            const systemFields = Object.keys(aiCsvMapping).filter(k => aiCsvMapping[k]);
+            const headerIndices = {};
+            systemFields.forEach(field => {
+                headerIndices[field] = aiCsvHeader.indexOf(aiCsvMapping[field]);
+            });
+
+            let table = '<table class="table"><thead><tr>';
+            systemFields.forEach(field => {
+                table += `<th>${field}</th>`;
+            });
+            table += '</tr></thead><tbody>';
+
+            // Show sample data row
+            if (aiCsvSample.length > 0) {
+                table += '<tr>';
+                systemFields.forEach(field => {
+                    const index = headerIndices[field];
+                    const value = (index !== -1 && aiCsvSample[index]) ? aiCsvSample[index] : '<i>(データなし)</i>';
+                    table += `<td>${value}</td>`;
+                });
+                table += '</tr>';
+            }
+            table += '<tr>';
+            systemFields.forEach(field => { table += `<td>...</td>`; });
+            table += '</tr>';
+
+            table += '</tbody></table>';
+            container.innerHTML = table;
         }
 
         async function logout() {
