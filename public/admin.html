@@ -46,8 +46,6 @@
         th { background-color: #f2f2f2; }
         .error-message { color: red; margin-top: 10px; }
         .success-message { color: green; margin-top: 10px; }
-        .info-message { color: #007bff; margin-top: 10px; font-weight: bold; }
-        .warning-message { color: #ff8c00; margin-top: 10px; }
         .tab-buttons { margin-bottom: 20px; }
         .tab-buttons button { background-color: #e9ecef; border: 1px solid #ddd; padding: 10px 20px; cursor: pointer; font-size: 16px; border-radius: 5px 5px 0 0; margin-right: 5px; }
         .tab-buttons button.active { background-color: #007bff; color: white; border-color: #007bff; }
@@ -162,8 +160,11 @@
                 <label for="csv-file-input">CSVファイル (品番, 部品名, カテゴリー名):</label>
                 <input type="file" id="csv-file-input" accept=".csv">
             </div>
+            <div class="form-group">
+                <label for="csv-default-category">カテゴリーが空の場合のデフォルトカテゴリー:</label>
+                <select id="csv-default-category"><option value="">-- 指定しない --</option></select>
+            </div>
             <button class="btn-primary" onclick="importPartsCSV()">インポート実行</button>
-            <button class="btn-secondary" onclick="openAiCsvImportModal('parts')">AIアシストでインポート</button>
             <p id="import-parts-message"></p>
 
             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -491,30 +492,8 @@
         </div>
     </div>
 
-    <div id="ai-csv-import-modal" class="modal">
-        <div class="modal-content" style="max-width: 600px;">
-            <span class="close-button" onclick="closeAiCsvImportModal()">&times;</span>
-            <h2>AIアシスト CSVインポート (高機能版)</h2>
-            <p>列の順番や列名が異なるCSVファイルでも、AIが内容を自動で解析し、登録可能なデータのみを取り込みます。</p>
-            
-            <div class="form-group">
-                <label for="ai-csv-file-input">インポートするCSVファイルを選択してください:</label>
-                <input type="file" id="ai-csv-file-input" accept=".csv">
-            </div>
-
-            <button class="btn-primary" onclick="executeAdvancedImport()">インポート実行</button>
-            
-            <hr style="margin: 20px 0;">
-
-            <h4>処理結果</h4>
-            <div id="ai-csv-import-result-message">ここに結果が表示されます。</div>
-        </div>
-    </div>
-
     <script>
         let currentUser = null;
-        let aiCsvImportType = null; // 'parts' or 'inventory'
-
         document.addEventListener('DOMContentLoaded', checkAuthAndLoadAdmin);
 
         let allShops = [];
@@ -524,100 +503,8 @@
         let allInventoryData = [];
         let allEmployees = [];
 
-        // --- AI CSV Import State ---
-        let aiCsvFile = null;
-        let aiCsvHeader = [];
-        let aiCsvSample = [];
-        let aiCsvMapping = {};
-
         // --- Core Functions ---
         async function checkAuthAndLoadAdmin() {
-            const statusMessage = document.getElementById('auth-status');
-            try {
-                const response = await fetch('/api/auth/status');
-                const data = await response.json();
-                if (data.loggedIn && data.user.role === 'admin') {
-                    currentUser = data.user;
-                    document.getElementById('username-display').textContent = data.user.username;
-                    document.getElementById('role-display').textContent = data.user.role;
-                    loadAllAdminData();
-                } else {
-                    statusMessage.textContent = '管理者権限がありません。ログインページに戻ります。';
-                    setTimeout(() => { window.location.href = '/login.html'; }, 2000);
-                }
-            } catch (error) {
-                statusMessage.textContent = '認証状態の確認中にエラーが発生しました。';
-                console.error('Auth check error:', error);
-            }
-        }
-
-        function openAiCsvImportModal(type) {
-            aiCsvImportType = type;
-            // Reset modal state
-            document.getElementById('ai-csv-file-input').value = '';
-            const resultDiv = document.getElementById('ai-csv-import-result-message');
-            resultDiv.innerHTML = 'ここに結果が表示されます。';
-            resultDiv.className = '';
-            document.getElementById('ai-csv-import-modal').style.display = 'block';
-        }
-
-        function closeAiCsvImportModal() {
-            document.getElementById('ai-csv-import-modal').style.display = 'none';
-        }
-
-        async function executeAdvancedImport() {
-            const fileInput = document.getElementById('ai-csv-file-input');
-            const file = fileInput.files[0];
-            const resultDiv = document.getElementById('ai-csv-import-result-message');
-
-            if (!file) {
-                resultDiv.textContent = 'CSVファイルを選択してください。';
-                resultDiv.className = 'error-message';
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('csvfile', file);
-            // importType is still needed to choose the correct logic server-side
-            formData.append('importType', aiCsvImportType);
-
-            try {
-                resultDiv.textContent = 'AIがCSVファイルを解析・処理中です... ファイルの行数によっては数分かかる場合があります。';
-                resultDiv.className = 'info-message'; // You might want to add a style for .info-message
-
-                const response = await fetch('/api/admin/csv/process-advanced', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-
-                if (response.ok || response.status === 207) { // 207 is Multi-Status for partial success
-                    let resultHTML = `<strong>${result.message}</strong>`;
-                    if (result.details && result.details.length > 0) {
-                        resultHTML += '<br>エラー詳細:<br><ul>';
-                        result.details.forEach(err => {
-                            resultHTML += `<li>${err}</li>`;
-                        });
-                        resultHTML += '</ul>';
-                    }
-                    resultDiv.innerHTML = resultHTML;
-                    resultDiv.className = response.status === 207 ? 'warning-message' : 'success-message'; // You might want to add a style for .warning-message
-                    
-                    // Refresh relevant data
-                    if (aiCsvImportType === 'parts') {
-                        loadParts();
-                        loadCategories();
-                    }
-                } else {
-                    resultDiv.textContent = `エラー: ${result.error || '不明なエラーが発生しました'}`;
-                    resultDiv.className = 'error-message';
-                }
-            } catch (error) {
-                resultDiv.textContent = `通信エラー: ${error.message}`;
-                resultDiv.className = 'error-message';
-            }
-        }
 
         async function logout() {
             await fetch('/api/logout', { method: 'POST' });
@@ -747,7 +634,16 @@
                     row.insertCell().textContent = part.id;
                     row.insertCell().textContent = part.part_number;
                     row.insertCell().textContent = part.part_name;
-                    row.insertCell().textContent = part.category_name || 'N/A';
+                    
+                    const categoryCell = row.insertCell();
+                    let categorySelectHTML = `<select onchange="updatePartCategory(this, ${part.id})">`;
+                    categorySelectHTML += '<option value="">カテゴリーなし</option>';
+                    allCategories.forEach(cat => {
+                        categorySelectHTML += `<option value="${cat.id}" ${part.category_id === cat.id ? 'selected' : ''}>${cat.name}</option>`;
+                    });
+                    categorySelectHTML += `</select>`;
+                    categoryCell.innerHTML = categorySelectHTML;
+
                     row.insertCell().innerHTML = `<td class="action-buttons"><button class="btn-secondary" onclick="openEditPartModal(${part.id})">編集</button> <button class="btn-danger" onclick="deletePart(${part.id}, '${part.part_name}')">削除</button></td>`;
                 });
 
@@ -816,6 +712,27 @@
             } catch (error) { showMessage('edit-part-message', `通信エラー: ${error.message}`, 'error'); }
         }
 
+        async function updatePartCategory(selectElement, partId) {
+            const categoryId = selectElement.value;
+            try {
+                const response = await fetch(`/api/admin/parts/${partId}/category`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ categoryId: categoryId || null })
+                });
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error);
+                }
+                // Optionally show a success message, but it might be too noisy.
+                // showMessage('add-part-message', 'カテゴリーを更新しました。', 'success');
+            } catch (error) {
+                showMessage('add-part-message', `カテゴリー更新エラー: ${error.message}`, 'error');
+                // Revert dropdown on failure
+                loadParts();
+            }
+        }
+
         async function deletePart(id, name) {
             if (confirm(`本当に部品「${name}」を削除しますか？\nこの部品の在庫が残っている場合は削除できません。`)) {
                 try {
@@ -878,13 +795,14 @@
             const reader = new FileReader();
             reader.onload = async (event) => {
                 const csvData = event.target.result;
+                const defaultCategoryId = document.getElementById('csv-default-category').value;
                 showMessage('import-parts-message', 'インポート処理を実行中...', 'info');
 
                 try {
                     const response = await fetch('/api/admin/parts/csv', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ csvData })
+                        body: JSON.stringify({ csvData, defaultCategoryId })
                     });
 
                     const result = await response.json();
@@ -1095,7 +1013,7 @@
                 });
 
                 // Update part category dropdowns
-                const partCategorySelects = [document.getElementById('new-part-category'), document.getElementById('edit-part-category')];
+                const partCategorySelects = [document.getElementById('new-part-category'), document.getElementById('edit-part-category'), document.getElementById('csv-default-category')];
                 partCategorySelects.forEach(sel => {
                     if (!sel) return;
                     const currentValue = sel.value;

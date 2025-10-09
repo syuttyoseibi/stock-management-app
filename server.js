@@ -7,11 +7,6 @@ const bcrypt = require('bcrypt');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-
-// --- Gemini AI Setup ---
-const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
-const aiModel = genAI ? genAI.getGenerativeModel({ model: "gemini-2.5-flash"}) : null;
 
 // --- Multer Setup for CSV upload ---
 const storage = multer.memoryStorage();
@@ -357,6 +352,17 @@ app.put('/api/admin/parts/:id', isAuthenticated, isAdmin, async (req, res) => { 
  res.status(500).json({ error: err.message });
  }
 });
+
+app.put('/api/admin/parts/:id/category', isAuthenticated, isAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { categoryId } = req.body;
+    try {
+        await dbRun("UPDATE parts SET category_id = ? WHERE id = ?", [categoryId, id]);
+        res.json({ message: 'Category updated successfully.' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 app.delete('/api/admin/parts/:id', isAuthenticated, isAdmin, async (req, res) => { const { id } = req.params;
  try {
  const invCount = await dbGet("SELECT COUNT(*) AS count FROM inventories WHERE part_id = ?", [id]);
@@ -406,43 +412,66 @@ app.get('/api/admin/parts/csv', isAuthenticated, isAdmin, async (req, res) => { 
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="parts-master.csv"');
         res.status(200).send(Buffer.from(bom + csvString, 'utf8')); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.post('/api/admin/parts/csv', isAuthenticated, isAdmin, async (req, res) => { const { csvData } = req.body;
+app.post('/api/admin/parts/csv', isAuthenticated, isAdmin, async (req, res) => { const { csvData, defaultCategoryId } = req.body;
  if (!csvData) {
  return res.status(400).json({ error: 'CSV data is missing.' });
  }
  const rows = csvData.split('\n').map(row => row.trim()).filter(row => row);
- rows.shift();
+ const header = rows.shift().toLowerCase().split(',').map(h => h.trim());
+
+ // Basic header validation
+ if (!header.includes('part_number')) {
+    return res.status(400).json({ error: 'CSV must include a \'part_number\' column.' });
+ }
+
+ const partNumberIndex = header.indexOf('part_number');
+ const partNameIndex = header.indexOf('part_name');
+ const categoryNameIndex = header.indexOf('category_name');
+
  try {
  await dbRun("BEGIN TRANSACTION;");
  let successCount = 0;
  let errorCount = 0;
  const errors = [];
  for (const [index, row] of rows.entries()) {
- const [part_number, part_name, category_name] = row.split(',').map(field => field.trim().replace(/^"|"$/g, ''));
- if (!part_number || !part_name) {
- errors.push(`Row ${index + 1}: Invalid data - ${row}`);
+ const fields = row.split(',').map(field => field.trim().replace(/^"|"$/g, ''));
+ const part_number = fields[partNumberIndex];
+
+ if (!part_number) {
+ errors.push(`行 ${index + 2}: 品番がありません。`);
  errorCount++;
  continue;
  }
+
+ const part_name = (partNameIndex !== -1 && fields[partNameIndex]) ? fields[partNameIndex] : part_number;
+ const category_name = (categoryNameIndex !== -1) ? fields[categoryNameIndex] : null;
+ let categoryId = null;
+
+ if (category_name) {
  const category = await dbGet("SELECT id FROM categories WHERE name = ?", [category_name]);
- let categoryId = category ? category.id : null;
- if (!category && category_name) {
+ if (category) {
+ categoryId = category.id;
+ } else {
  const result = await dbRun("INSERT INTO categories (name) VALUES (?)", [category_name]);
  categoryId = result.lastID;
  }
+ } else if (defaultCategoryId) {
+    categoryId = defaultCategoryId;
+ }
+
  const sql = `INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?) ON CONFLICT(part_number) DO UPDATE SET part_name = excluded.part_name, category_id = excluded.category_id;`;
  await dbRun(sql, [part_number, part_name, categoryId]);
  successCount++;
  }
  if (errorCount > 0) {
  await dbRun("ROLLBACK;");
- return res.status(400).json({ error: "CSV import failed due to errors.", details: errors });
+ return res.status(400).json({ error: "CSVインポートはエラーのため中断されました。", details: errors });
  }
  await dbRun("COMMIT;");
- res.json({ message: "CSV import successful.", summary: `Success: ${successCount}, Failed: ${errorCount}` });
+ res.json({ message: "CSVインポートが正常に完了しました。", summary: `成功: ${successCount}件, 失敗: ${errorCount}件` });
  } catch (err) {
  await dbRun("ROLLBACK;");
- res.status(500).json({ error: 'An unexpected error occurred.', details: err.message });
+ res.status(500).json({ error: '予期せぬエラーが発生しました。', details: err.message });
  }
 });
 
@@ -708,269 +737,6 @@ app.get('/api/admin/reorder-list/csv', isAuthenticated, isAdmin, async (req, res
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="reorder-list.csv"');
         res.status(200).send(Buffer.from(bom + csvString, 'utf8')); } catch (err) { res.status(500).json({ error: err.message }); } });
-
-// --- AI CSV Import APIs ---
-app.post('/api/admin/csv/analyze', isAuthenticated, isAdmin, upload.single('csvfile'), (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded.' });
-    }
-
-    try {
-        const csvString = req.file.buffer.toString('utf8');
-        const lines = csvString.split(/\r?\n/);
-        
-        const header = lines[0] ? lines[0].split(',').map(h => h.trim()) : [];
-        const sampleData = lines[1] ? lines[1].split(',').map(d => d.trim()) : [];
-
-        if (header.length === 0) {
-            return res.status(400).json({ error: 'CSV file is empty or has no header.' });
-        }
-
-        res.json({ header, sampleData });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to analyze CSV file.', details: error.message });
-    }
-});
-
-app.post('/api/admin/csv/guess-mapping', isAuthenticated, isAdmin, async (req, res) => {
-    const { header, importType } = req.body;
-
-    if (!aiModel) {
-        return res.status(500).json({ error: 'AI model is not initialized. Check GEMINI_API_KEY.' });
-    }
-    if (!header || !importType) {
-        return res.status(400).json({ error: 'CSV header and importType are required.' });
-    }
-
-    let systemFields;
-    let prompt;
-
-    if (importType === 'parts') {
-        systemFields = ["part_number", "part_name", "category_name"];
-        prompt = `You are a data import assistant for a stock management system. Given the CSV header columns, map them to the system's required fields for importing parts. The system fields are: ${systemFields.join(', ')}. The CSV header is: [${header.join(', ')}]. Respond with a JSON object where keys are the system fields and values are the corresponding header columns. If no suitable column is found for a system field, use null.`;
-    } else if (importType === 'inventory') {
-        systemFields = ["part_number", "shop_name", "quantity", "min_reorder_level", "location_info"];
-        prompt = `You are a data import assistant for a stock management system. Given the CSV header columns, map them to the system's required fields for importing inventory. The system fields are: ${systemFields.join(', ')}. The CSV header is: [${header.join(', ')}]. Respond with a JSON object where keys are the system fields and values are the corresponding header columns. If no suitable column is found for a system field, use null.`;
-    } else {
-        return res.status(400).json({ error: 'Invalid importType.' });
-    }
-
-    try {
-        const result = await aiModel.generateContent(prompt);
-        const response = await result.response;
-        let text = response.text();
-        
-        // Clean up the response to get a valid JSON string
-        text = text.replace(/^```json\n/, '').replace(/\n```$/, '');
-        
-        const guessedMap = JSON.parse(text);
-        res.json(guessedMap);
-
-    } catch (error) {
-        console.error('Gemini API error:', error);
-        res.status(500).json({ error: 'Failed to get mapping from AI.', details: error.message });
-    }
-});
-
-app.post('/api/admin/csv/process-advanced', isAuthenticated, isAdmin, upload.single('csvfile'), async (req, res) => {
-    console.log('[AI Import] /process-advanced API endpoint hit.'); // Log entry point
-    if (!req.file) {
-        console.error('[AI Import] No file uploaded.');
-        return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
-    }
-    if (!aiModel) {
-        return res.status(500).json({ error: 'AIモデルが初期化されていません。APIキーを確認してください。' });
-    }
-
-    const generateContentWithTimeout = (prompt, timeout = 30000) => {
-        const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('AIへの問い合わせがタイムアウトしました。')), timeout)
-        );
-        const generationPromise = aiModel.generateContent(prompt);
-        return Promise.race([generationPromise, timeoutPromise]);
-    };
-
-    const csvString = req.file.buffer.toString('utf8');
-    const lines = csvString.split(/\r?\n/).filter(line => line && line.trim());
-
-    let successCount = 0;
-    let errorCount = 0;
-    const errors = [];
-    const queriesToExecute = [];
-    let currentMapping = null;
-
-    const systemFields = ["part_number", "part_name", "category_name"];
-
-    for (const [index, line] of lines.entries()) {
-        const prompt = `
-            You are a CSV data parsing AI agent for a stock management system.
-            The system's required fields for parts are: [${systemFields.join(', ')}]. The "part_number" field is mandatory for a data row.
-            The current column mapping rule is: ${JSON.stringify(currentMapping)}
-            Now, I am reading this line from the CSV file: "${line}"
-
-            Your task is to determine if this line is a new header, a data row, or an invalid/empty line, and instruct me on the next action. Respond ONLY with a JSON object in one of the following formats:
-
-            1. If the line appears to be a new header, respond with:
-            { "action": "UPDATE_MAPPING", "new_mapping": { "part_number": "<column_name>", "part_name": "<column_name>", "category_name": "<column_name>" } }
-            (Map the system fields to the columns in this new header. Use null if a mapping is not found.)
-
-            2. If the line appears to be a data row that can be processed with the current mapping rule, respond with:
-            { "action": "PROCESS_DATA", "data": { "part_number": "<value>", "part_name": "<value>", "category_name": "<value>" } }
-            (Extract the data based on the current mapping rule.)
-
-            3. If the line is invalid, empty, or cannot be processed, respond with:
-            { "action": "SKIP" }
-        `;
-
-        try {
-            const result = await generateContentWithTimeout(prompt);
-            const responseText = result.response.text().replace(/^```json\n/, '').replace(/\n```$/, '');
-            const aiResponse = JSON.parse(responseText);
-
-            switch (aiResponse.action) {
-                case 'UPDATE_MAPPING':
-                    currentMapping = aiResponse.new_mapping;
-                    break;
-
-                case 'PROCESS_DATA':
-                    const { data } = aiResponse;
-                    if (!data.part_number) {
-                        throw new Error('品番が見つかりませんでした。');
-                    }
-                    // Add SQL query to a queue to be executed in a transaction
-                    queriesToExecute.push({ data });
-                    successCount++; // Tentative success
-                    break;
-
-                case 'SKIP':
-                default:
-                    break;
-            }
-        } catch (err) {
-            errorCount++;
-            errors.push(`行 ${index + 1}: AIによる解析またはデータ処理に失敗しました。(${err.message})`);
-            console.error(`[AI Import] Error processing line ${index + 1}:`, err);
-        }
-    }
-
-    // Now, execute all valid queries in a single transaction
-    if (queriesToExecute.length > 0) {
-        await dbRun("BEGIN TRANSACTION;");
-        try {
-            for (const query of queriesToExecute) {
-                const { data } = query;
-                let categoryId = null;
-                if (data.category_name) {
-                    const category = await dbGet("SELECT id FROM categories WHERE name = ?", [data.category_name]);
-                    if (category) {
-                        categoryId = category.id;
-                    } else {
-                        const catResult = await dbRun("INSERT INTO categories (name) VALUES (?)", [data.category_name]);
-                        categoryId = catResult.lastID;
-                    }
-                }
-                const sql = `INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?) ON CONFLICT(part_number) DO UPDATE SET part_name = excluded.part_name, category_id = excluded.category_id;`;
-                await dbRun(sql, [data.part_number, data.part_name || data.part_number, categoryId]);
-            }
-            await dbRun("COMMIT;");
-        } catch (err) {
-            await dbRun("ROLLBACK;");
-            return res.status(500).json({ error: 'データベースへの登録中に致命的なエラーが発生しました。', details: err.message });
-        }
-    }
-
-    if (errorCount > 0) {
-        res.status(207).json({ // Multi-Status
-            message: `処理が完了しました。成功: ${successCount}件, 失敗: ${errorCount}件`,
-            details: errors
-        });
-    } else {
-        res.json({ message: `正常に ${successCount}件のレコードをインポートしました。` });
-    }
-});
-
-app.post('/api/admin/csv/import', isAuthenticated, isAdmin, upload.single('csvfile'), async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
-    }
-    const { mapping, importType } = req.body;
-    if (!mapping || !importType) {
-        return res.status(400).json({ error: 'マッピングまたはインポート種別が指定されていません。' });
-    }
-
-    const columnMap = JSON.parse(mapping);
-    const csvString = req.file.buffer.toString('utf8');
-    const lines = csvString.split(/\r?\n/).filter(line => line); // Filter out empty lines
-    const header = lines.shift().split(',').map(h => h.trim());
-
-    const headerIndices = {};
-    for (const field in columnMap) {
-        if (columnMap[field]) {
-            headerIndices[field] = header.indexOf(columnMap[field]);
-        }
-    }
-
-    let successCount = 0;
-    let errorCount = 0;
-    const errors = [];
-
-    await dbRun("BEGIN TRANSACTION;");
-    try {
-        for (const [index, line] of lines.entries()) {
-            const row = line.split(',').map(d => d.trim());
-            try {
-                if (importType === 'parts') {
-                    const part_number_idx = headerIndices.part_number;
-                    if (part_number_idx === -1 || !row[part_number_idx]) {
-                        throw new Error('品番がありません。');
-                    }
-                    const part_number = row[part_number_idx];
-                    const part_name_idx = headerIndices.part_name;
-                    const part_name = (part_name_idx !== -1 && row[part_name_idx]) ? row[part_name_idx] : part_number;
-                    
-                    const category_name_idx = headerIndices.category_name;
-                    const category_name = (category_name_idx !== -1) ? row[category_name_idx] : null;
-                    
-                    let categoryId = null;
-                    if (category_name) {
-                        const category = await dbGet("SELECT id FROM categories WHERE name = ?", [category_name]);
-                        if (category) {
-                            categoryId = category.id;
-                        } else {
-                            const result = await dbRun("INSERT INTO categories (name) VALUES (?)", [category_name]);
-                            categoryId = result.lastID;
-                        }
-                    }
-                    const sql = `INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?) ON CONFLICT(part_number) DO UPDATE SET part_name = excluded.part_name, category_id = excluded.category_id;`;
-                    await dbRun(sql, [part_number, part_name, categoryId]);
-
-                } else if (importType === 'inventory') {
-                    // Implementation for inventory import can be added here later
-                }
-                successCount++;
-            } catch (err) {
-                errorCount++;
-                errors.push(`行 ${index + 2}: ${err.message}`);
-            }
-        }
-
-        await dbRun("COMMIT;");
-
-        if (errorCount > 0) {
-            res.status(207).json({ // 207 Multi-Status
-                message: `処理が完了しました。成功: ${successCount}件, 失敗: ${errorCount}件`,
-                summary: `Success: ${successCount}, Failed: ${errorCount}`,
-                details: errors
-            });
-        } else {
-            res.json({ message: `正常に ${successCount}件のレコードをインポートしました。` });
-        }
-
-    } catch (err) {
-        await dbRun("ROLLBACK;");
-        res.status(500).json({ error: 'インポート処理中に致命的なエラーが発生しました。', details: err.message });
-    }
-});
 
 // --- Server Start ---
 const startServer = async () => {
