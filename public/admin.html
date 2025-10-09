@@ -166,10 +166,13 @@
 
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h3>登録済み部品リスト</h3>
-                <button class="btn-secondary" onclick="window.location.href='/api/admin/parts/csv'">CSVエクスポート</button>
+                <div>
+                    <button class="btn-danger" onclick="deleteSelectedParts()" style="margin-right: 10px;">選択した部品を削除</button>
+                    <button class="btn-secondary" onclick="window.location.href='/api/admin/parts/csv'">CSVエクスポート</button>
+                </div>
             </div>
             <table id="parts-table">
-                <thead><tr><th>ID</th><th>品番</th><th>部品名</th><th>カテゴリー</th><th>操作</th></tr></thead>
+                <thead><tr><th><input type="checkbox" onclick="toggleAllPartCheckboxes(this)"></th><th>ID</th><th>品番</th><th>部品名</th><th>カテゴリー</th><th>操作</th></tr></thead>
                 <tbody></tbody>
             </table>
         </div>
@@ -868,6 +871,7 @@
                 tableBody.innerHTML = '';
                 allParts.forEach(part => {
                     const row = tableBody.insertRow();
+                    row.insertCell().innerHTML = `<input type="checkbox" class="part-checkbox" value="${part.id}">`;
                     row.insertCell().textContent = part.id;
                     row.insertCell().textContent = part.part_number;
                     row.insertCell().textContent = part.part_name;
@@ -950,6 +954,42 @@
                         loadParts();
                     } else { showMessage('add-part-message', `エラー: ${data.error}`, 'error'); }
                 } catch (error) { showMessage('add-part-message', `通信エラー: ${error.message}`, 'error'); }
+            }
+        }
+
+        function toggleAllPartCheckboxes(source) {
+            const checkboxes = document.querySelectorAll('.part-checkbox');
+            for (const checkbox of checkboxes) {
+                checkbox.checked = source.checked;
+            }
+        }
+
+        async function deleteSelectedParts() {
+            const checkboxes = document.querySelectorAll('.part-checkbox:checked');
+            const partIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+            if (partIds.length === 0) {
+                showMessage('add-part-message', '削除する部品を選択してください。', 'error');
+                return;
+            }
+
+            if (confirm(`${partIds.length}件の部品を本当に削除しますか？\nいずれかの工場で在庫が残っている部品は削除できません。`)) {
+                try {
+                    const response = await fetch('/api/admin/parts', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ partIds })
+                    });
+                    const data = await response.json();
+                    if (response.ok) {
+                        showMessage('add-part-message', data.message, 'success');
+                        loadParts(); // Refresh the list
+                    } else {
+                        showMessage('add-part-message', `エラー: ${data.error}`, 'error');
+                    }
+                } catch (error) {
+                    showMessage('add-part-message', `通信エラー: ${error.message}`, 'error');
+                }
             }
         }
 

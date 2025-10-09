@@ -373,6 +373,34 @@ app.delete('/api/admin/parts/:id', isAuthenticated, isAdmin, async (req, res) =>
  }
 });
 
+app.delete('/api/admin/parts', isAuthenticated, isAdmin, async (req, res) => {
+    const { partIds } = req.body;
+    if (!partIds || !Array.isArray(partIds) || partIds.length === 0) {
+        return res.status(400).json({ error: 'partIds array is required.' });
+    }
+
+    try {
+        // Check if any of the parts are in use
+        const placeholders = partIds.map(() => '?').join(',');
+        const invCountSql = `SELECT COUNT(*) AS count FROM inventories WHERE part_id IN (${placeholders})`;
+        const invCount = await dbGet(invCountSql, partIds);
+        if (invCount.count > 0) {
+            return res.status(400).json({ error: '削除できません: 選択された部品のいくつかは、いずれかの工場の在庫として登録されています。' });
+        }
+
+        // Proceed with deletion
+        const deleteSql = `DELETE FROM parts WHERE id IN (${placeholders})`;
+        const result = await dbRun(deleteSql, partIds);
+
+        if (result.changes === 0) {
+            return res.status(404).json({ error: '削除対象の部品が見つかりませんでした。' });
+        }
+        res.json({ message: `${result.changes}件の部品を削除しました。` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/admin/parts/csv', isAuthenticated, isAdmin, async (req, res) => { const sql = `SELECT p.id, p.part_number, p.part_name, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.id`; try { const rows = await dbAll(sql); if (!rows || rows.length === 0) { return res.status(404).send('No parts to export.'); } const header = 'ID,Part Number,Part Name,Category Name\n'; const csvRows = rows.map(row => `"${row.id}","${row.part_number}","${row.part_name}","${row.category_name || ''}"`);  const csvString = header + csvRows.join('\n');
         const bom = '\uFEFF';
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -746,11 +774,11 @@ app.post('/api/admin/csv/guess-mapping', isAuthenticated, isAdmin, async (req, r
 
 app.post('/api/admin/csv/import', isAuthenticated, isAdmin, upload.single('csvfile'), async (req, res) => {
     if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded.' });
+        return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
     }
     const { mapping, importType } = req.body;
     if (!mapping || !importType) {
-        return res.status(400).json({ error: 'Mapping and importType are required.' });
+        return res.status(400).json({ error: 'マッピングまたはインポート種別が指定されていません。' });
     }
 
     const columnMap = JSON.parse(mapping);
@@ -758,7 +786,6 @@ app.post('/api/admin/csv/import', isAuthenticated, isAdmin, upload.single('csvfi
     const lines = csvString.split(/\r?\n/).filter(line => line); // Filter out empty lines
     const header = lines.shift().split(',').map(h => h.trim());
 
-    // Create a map of system_field -> csv_column_index
     const headerIndices = {};
     for (const field in columnMap) {
         if (columnMap[field]) {
@@ -770,19 +797,23 @@ app.post('/api/admin/csv/import', isAuthenticated, isAdmin, upload.single('csvfi
     let errorCount = 0;
     const errors = [];
 
+    await dbRun("BEGIN TRANSACTION;");
     try {
-        await dbRun("BEGIN TRANSACTION;");
-
         for (const [index, line] of lines.entries()) {
             const row = line.split(',').map(d => d.trim());
             try {
                 if (importType === 'parts') {
-                    const part_number = row[headerIndices.part_number];
-                    if (!part_number) {
-                        throw new Error('part_number is missing.');
+                    const part_number_idx = headerIndices.part_number;
+                    if (part_number_idx === -1 || !row[part_number_idx]) {
+                        throw new Error('品番がありません。');
                     }
-                    const part_name = headerIndices.part_name !== -1 ? row[headerIndices.part_name] : part_number;
-                    const category_name = headerIndices.category_name !== -1 ? row[headerIndices.category_name] : null;
+                    const part_number = row[part_number_idx];
+                    const part_name_idx = headerIndices.part_name;
+                    const part_name = (part_name_idx !== -1 && row[part_name_idx]) ? row[part_name_idx] : part_number;
+                    
+                    const category_name_idx = headerIndices.category_name;
+                    const category_name = (category_name_idx !== -1) ? row[category_name_idx] : null;
+                    
                     let categoryId = null;
                     if (category_name) {
                         const category = await dbGet("SELECT id FROM categories WHERE name = ?", [category_name]);
@@ -795,31 +826,32 @@ app.post('/api/admin/csv/import', isAuthenticated, isAdmin, upload.single('csvfi
                     }
                     const sql = `INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?) ON CONFLICT(part_number) DO UPDATE SET part_name = excluded.part_name, category_id = excluded.category_id;`;
                     await dbRun(sql, [part_number, part_name, categoryId]);
+
                 } else if (importType === 'inventory') {
                     // Implementation for inventory import can be added here later
                 }
                 successCount++;
             } catch (err) {
                 errorCount++;
-                errors.push(`Line ${index + 2}: ${err.message}`);
+                errors.push(`行 ${index + 2}: ${err.message}`);
             }
         }
 
-        if (errorCount > 0) {
-            await dbRun("ROLLBACK;");
-            return res.status(400).json({ 
-                message: `Import finished with errors. No data was imported.`,
-                error: 'Import failed', 
-                details: errors 
-            });
-        }
-
         await dbRun("COMMIT;");
-        res.json({ message: `Successfully imported ${successCount} records.` });
+
+        if (errorCount > 0) {
+            res.status(207).json({ // 207 Multi-Status
+                message: `処理が完了しました。成功: ${successCount}件, 失敗: ${errorCount}件`,
+                summary: `Success: ${successCount}, Failed: ${errorCount}`,
+                details: errors
+            });
+        } else {
+            res.json({ message: `正常に ${successCount}件のレコードをインポートしました。` });
+        }
 
     } catch (err) {
         await dbRun("ROLLBACK;");
-        res.status(500).json({ error: 'A critical error occurred during the import transaction.', details: err.message });
+        res.status(500).json({ error: 'インポート処理中に致命的なエラーが発生しました。', details: err.message });
     }
 });
 
