@@ -145,11 +145,33 @@ function isShopUser(req, res, next) { if (req.session.user && req.session.user.r
 
 // --- General User APIs ---
 app.get('/api/shops', isAuthenticated, async (req, res) => { try { if (req.session.user.role === 'admin') { const rows = await dbAll("SELECT id, name FROM shops ORDER BY name"); res.json(rows); } else if (req.session.user.role === 'shop_user' && req.session.user.shop_id) { const row = await dbGet("SELECT id, name FROM shops WHERE id = ?", [req.session.user.shop_id]); res.json(row ? [row] : []); } else { res.status(403).json({ error: 'Forbidden: Invalid role or shop_id' }); } } catch (err) { res.status(500).json({ error: err.message }); } });
-app.get('/api/shops/:shopId/inventory', isAuthenticated, async (req, res) => {
-    // Debugging: Temporarily return a fixed response to check if the route is hit.
-    res.json([
-        { id: 999, part_number: 'DEBUG-001', part_name: 'デバッグ用テスト部品', category_name: 'デバッグカテゴリ', quantity: 1, location_info: 'N/A' }
-    ]);
+app.get('/api/shops/:shopId/inventory', isAuthenticated, async (req, res) => { const { shopId } = req.params;
+ if (req.session.user.role === 'shop_user' && parseInt(shopId) !== req.session.user.shop_id) {
+ return res.status(403).json({ error: "Forbidden: You can only view your own shop's inventory" });
+ }
+ const sql = `
+        SELECT 
+            p.id, 
+            p.part_number, 
+            p.part_name, 
+            c.id as category_id, 
+            c.name as category_name, 
+            i.quantity, 
+            i.location_info 
+        FROM 
+            parts p 
+        JOIN 
+            inventories i ON p.id = i.part_id 
+        LEFT JOIN 
+            categories c ON p.category_id = c.id 
+        WHERE i.shop_id = ? 
+        ORDER BY c.name, p.part_name;`;
+ try {
+ const rows = await dbAll(sql, [shopId]);
+ res.json(rows);
+ } catch (err) {
+ res.status(500).json({ error: err.message });
+ }
 });
 app.post('/api/use-part', isAuthenticated, async (req, res) => { const { part_id, shop_id, employee_id } = req.body;
  if (!part_id || !shop_id || !employee_id) {
