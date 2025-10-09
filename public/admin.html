@@ -1180,7 +1180,7 @@
                 row.insertCell().textContent = item.min_reorder_level;
                 row.insertCell().textContent = item.location_info;
                 const itemCopy = JSON.parse(JSON.stringify(item));
-                row.insertCell().innerHTML = `<td class="action-buttons"><button class="btn-secondary" onclick='editInventory(${JSON.stringify(itemCopy)})'>編集</button></td>`;
+                row.insertCell().innerHTML = `<td class="action-buttons"><button class="btn-secondary" onclick='editInventory(${JSON.stringify(itemCopy)})'>編集</button><button class="btn-danger" onclick="deleteInventory(${item.shop_id}, ${item.part_id}, '${item.shop_name}', '${item.part_name}')">削除</button></td>`;
             });
         }
 
@@ -1206,6 +1206,28 @@
             document.getElementById('inventory-min-reorder-level').value = item.min_reorder_level;
             document.getElementById('inventory-location-info').value = item.location_info;
             window.scrollTo(0, 0);
+        }
+
+        async function deleteInventory(shopId, partId, shopName, partName) {
+            if (!confirm(`【確認】\n\n工場: ${shopName}\n部品: ${partName}\n\nこの在庫情報を完全に削除します。よろしいですか？`)) {
+                return;
+            }
+            try {
+                const response = await fetch('/api/admin/inventory', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shop_id: shopId, part_id: partId })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    showMessage('update-inventory-message', result.message, 'success');
+                    loadAllInventory(); // Refresh the list
+                } else {
+                    showMessage('update-inventory-message', `エラー: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showMessage('update-inventory-message', `通信エラー: ${error.message}`, 'error');
+            }
         }
 
         async function updateInventory() {

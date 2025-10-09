@@ -534,6 +534,22 @@ app.post('/api/admin/inventory', isAuthenticated, isAdmin, async (req, res) => {
  res.status(500).json({ error: err.message });
  }
 });
+
+app.delete('/api/admin/inventory', isAuthenticated, isAdmin, async (req, res) => {
+    const { shop_id, part_id } = req.body;
+    if (!shop_id || !part_id) {
+        return res.status(400).json({ error: 'shop_id and part_id are required' });
+    }
+    try {
+        const result = await dbRun("DELETE FROM inventories WHERE shop_id = ? AND part_id = ?", [shop_id, part_id]);
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'Inventory entry not found' });
+        }
+        res.json({ message: 'Inventory entry deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 app.post('/api/admin/inventory/csv', isAuthenticated, isAdmin, async (req, res) => { const { csvData } = req.body;
  if (!csvData) {
  return res.status(400).json({ error: 'CSV data is missing.' });
