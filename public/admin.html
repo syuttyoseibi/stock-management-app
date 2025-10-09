@@ -683,7 +683,7 @@
                     let categorySelectHTML = `<select onchange="updatePartCategory(this, ${part.id})">`;
                     categorySelectHTML += '<option value="">カテゴリーなし</option>';
                     allCategories.forEach(cat => {
-                        categorySelectHTML += `<option value="${cat.id}" ${part.category_id === cat.id ? 'selected' : ''}>${cat.name}</option>`;
+                        categorySelectHTML += `<option value="${cat.id}" ${part.category_id == cat.id ? 'selected' : ''}>${cat.name}</option>`;
                     });
                     categorySelectHTML += `</select>`;
                     categoryCell.innerHTML = categorySelectHTML;
