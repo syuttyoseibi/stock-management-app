@@ -505,6 +505,24 @@
 
         // --- Core Functions ---
         async function checkAuthAndLoadAdmin() {
+            const statusMessage = document.getElementById('auth-status');
+            try {
+                const response = await fetch('/api/auth/status');
+                const data = await response.json();
+                if (data.loggedIn && data.user.role === 'admin') {
+                    currentUser = data.user;
+                    document.getElementById('username-display').textContent = data.user.username;
+                    document.getElementById('role-display').textContent = data.user.role;
+                    loadAllAdminData();
+                } else {
+                    statusMessage.textContent = '管理者権限がありません。ログインページに戻ります。';
+                    setTimeout(() => { window.location.href = '/login.html'; }, 2000);
+                }
+            } catch (error) {
+                statusMessage.textContent = '認証状態の確認中にエラーが発生しました。';
+                console.error('Auth check error:', error);
+            }
+        }
 
         async function logout() {
             await fetch('/api/logout', { method: 'POST' });
