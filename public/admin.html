@@ -563,10 +563,10 @@
 
         async function loadAllAdminData() {
             await loadShops();
+            await loadCategories();
             await loadParts();
             await loadUsers();
             await loadEmployees();
-            await loadCategories();
             await loadAllInventory();
             await loadReorderList();
             await loadUsageHistory();
