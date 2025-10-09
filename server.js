@@ -782,7 +782,7 @@ app.post('/api/admin/csv/process-advanced', isAuthenticated, isAdmin, upload.sin
         return res.status(500).json({ error: 'AIモデルが初期化されていません。APIキーを確認してください。' });
     }
 
-    const generateContentWithTimeout = (prompt, timeout = 15000) => {
+    const generateContentWithTimeout = (prompt, timeout = 30000) => {
         const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('AIへの問い合わせがタイムアウトしました。')), timeout)
         );
