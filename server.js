@@ -11,7 +11,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // --- Gemini AI Setup ---
 const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
-const aiModel = genAI ? genAI.getGenerativeModel({ model: "gemini-pro"}) : null;
+const aiModel = genAI ? genAI.getGenerativeModel({ model: "gemini-2.5-flash"}) : null;
 
 // --- Multer Setup for CSV upload ---
 const storage = multer.memoryStorage();
