@@ -772,6 +772,112 @@ app.post('/api/admin/csv/guess-mapping', isAuthenticated, isAdmin, async (req, r
     }
 });
 
+app.post('/api/admin/csv/process-advanced', isAuthenticated, isAdmin, upload.single('csvfile'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
+    }
+    if (!aiModel) {
+        return res.status(500).json({ error: 'AIモデルが初期化されていません。APIキーを確認してください。' });
+    }
+
+    const csvString = req.file.buffer.toString('utf8');
+    const lines = csvString.split(/\r?\n/).filter(line => line && line.trim());
+
+    let successCount = 0;
+    let errorCount = 0;
+    const errors = [];
+    const queriesToExecute = [];
+    let currentMapping = null;
+
+    const systemFields = ["part_number", "part_name", "category_name"];
+
+    for (const [index, line] of lines.entries()) {
+        const prompt = `
+            You are a CSV data parsing AI agent for a stock management system.
+            The system's required fields for parts are: [${systemFields.join(', ')}]. The "part_number" field is mandatory for a data row.
+            The current column mapping rule is: ${JSON.stringify(currentMapping)}
+            Now, I am reading this line from the CSV file: "${line}"
+
+            Your task is to determine if this line is a new header, a data row, or an invalid/empty line, and instruct me on the next action. Respond ONLY with a JSON object in one of the following formats:
+
+            1. If the line appears to be a new header, respond with:
+            { "action": "UPDATE_MAPPING", "new_mapping": { "part_number": "<column_name>", "part_name": "<column_name>", "category_name": "<column_name>" } }
+            (Map the system fields to the columns in this new header. Use null if a mapping is not found.)
+
+            2. If the line appears to be a data row that can be processed with the current mapping rule, respond with:
+            { "action": "PROCESS_DATA", "data": { "part_number": "<value>", "part_name": "<value>", "category_name": "<value>" } }
+            (Extract the data based on the current mapping rule.)
+
+            3. If the line is invalid, empty, or cannot be processed, respond with:
+            { "action": "SKIP" }
+        `;
+
+        try {
+            const result = await aiModel.generateContent(prompt);
+            const responseText = result.response.text().replace(/^```json\n/, '').replace(/\n```$/, '');
+            const aiResponse = JSON.parse(responseText);
+
+            switch (aiResponse.action) {
+                case 'UPDATE_MAPPING':
+                    currentMapping = aiResponse.new_mapping;
+                    break;
+
+                case 'PROCESS_DATA':
+                    const { data } = aiResponse;
+                    if (!data.part_number) {
+                        throw new Error('品番が見つかりませんでした。');
+                    }
+                    // Add SQL query to a queue to be executed in a transaction
+                    queriesToExecute.push({ data });
+                    successCount++; // Tentative success
+                    break;
+
+                case 'SKIP':
+                default:
+                    break;
+            }
+        } catch (err) {
+            errorCount++;
+            errors.push(`行 ${index + 1}: AIによる解析またはデータ処理に失敗しました。(${err.message})`);
+        }
+    }
+
+    // Now, execute all valid queries in a single transaction
+    if (queriesToExecute.length > 0) {
+        await dbRun("BEGIN TRANSACTION;");
+        try {
+            for (const query of queriesToExecute) {
+                const { data } = query;
+                let categoryId = null;
+                if (data.category_name) {
+                    const category = await dbGet("SELECT id FROM categories WHERE name = ?", [data.category_name]);
+                    if (category) {
+                        categoryId = category.id;
+                    } else {
+                        const catResult = await dbRun("INSERT INTO categories (name) VALUES (?)", [data.category_name]);
+                        categoryId = catResult.lastID;
+                    }
+                }
+                const sql = `INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?) ON CONFLICT(part_number) DO UPDATE SET part_name = excluded.part_name, category_id = excluded.category_id;`;
+                await dbRun(sql, [data.part_number, data.part_name || data.part_number, categoryId]);
+            }
+            await dbRun("COMMIT;");
+        } catch (err) {
+            await dbRun("ROLLBACK;");
+            return res.status(500).json({ error: 'データベースへの登録中に致命的なエラーが発生しました。', details: err.message });
+        }
+    }
+
+    if (errorCount > 0) {
+        res.status(207).json({ // Multi-Status
+            message: `処理が完了しました。成功: ${successCount}件, 失敗: ${errorCount}件`,
+            details: errors
+        });
+    } else {
+        res.json({ message: `正常に ${successCount}件のレコードをインポートしました。` });
+    }
+});
+
 app.post('/api/admin/csv/import', isAuthenticated, isAdmin, upload.single('csvfile'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
