@@ -329,6 +329,16 @@ app.delete('/api/admin/categories/:id', isAuthenticated, isAdmin, async (req, re
 });
 
 app.get('/api/admin/parts', isAuthenticated, isAdmin, async (req, res) => { const sql = `SELECT p.id, p.part_number, p.part_name, p.category_id, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.id`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
+
+app.get('/api/admin/parts/uncategorized', isAuthenticated, isAdmin, async (req, res) => {
+    const sql = `SELECT id, part_number, part_name FROM parts WHERE category_id IS NULL ORDER BY id`;
+    try {
+        const rows = await dbAll(sql);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 app.post('/api/admin/parts', isAuthenticated, isAdmin, async (req, res) => { const { part_number, part_name, category_id } = req.body;
  if (!part_number || !part_name) {
  return res.status(400).json({ error: 'Part number and name are required' });
@@ -412,67 +422,92 @@ app.get('/api/admin/parts/csv', isAuthenticated, isAdmin, async (req, res) => { 
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="parts-master.csv"');
         res.status(200).send(Buffer.from(bom + csvString, 'utf8')); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.post('/api/admin/parts/csv', isAuthenticated, isAdmin, async (req, res) => { const { csvData, defaultCategoryId } = req.body;
- if (!csvData) {
- return res.status(400).json({ error: 'CSV data is missing.' });
- }
- const rows = csvData.split('\n').map(row => row.trim()).filter(row => row);
- const header = rows.shift().toLowerCase().split(',').map(h => h.trim());
+app.post('/api/admin/parts/csv', isAuthenticated, isAdmin, upload.single('csvFile'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'CSVファイルがアップロードされていません。' });
+    }
 
- // Basic header validation
- if (!header.includes('part_number')) {
-    return res.status(400).json({ error: 'CSV must include a \'part_number\' column.' });
- }
+    const csvData = req.file.buffer.toString('utf-8');
+    const rows = csvData.split('\n').map(row => row.trim()).filter(row => row);
+    if (rows.length < 2) {
+        return res.status(400).json({ error: 'CSVにヘッダー行とデータ行が含まれていません。' });
+    }
 
- const partNumberIndex = header.indexOf('part_number');
- const partNameIndex = header.indexOf('part_name');
- const categoryNameIndex = header.indexOf('category_name');
+    const header = rows.shift().toLowerCase().split(',').map(h => h.trim().replace(/^"|"$/g, ''));
 
- try {
- await dbRun("BEGIN TRANSACTION;");
- let successCount = 0;
- let errorCount = 0;
- const errors = [];
- for (const [index, row] of rows.entries()) {
- const fields = row.split(',').map(field => field.trim().replace(/^"|"$/g, ''));
- const part_number = fields[partNumberIndex];
+    const partNumberAliases = ['part_number', 'part-number', 'part number', '部品番号', '品番'];
+    const partNameAliases = ['part_name', 'part-name', 'part name', '部品名', '品名'];
 
- if (!part_number) {
- errors.push(`行 ${index + 2}: 品番がありません。`);
- errorCount++;
- continue;
- }
+    let partNumberIndex = -1;
+    let partNameIndex = -1;
 
- const part_name = (partNameIndex !== -1 && fields[partNameIndex]) ? fields[partNameIndex] : part_number;
- const category_name = (categoryNameIndex !== -1) ? fields[categoryNameIndex] : null;
- let categoryId = null;
+    header.forEach((h, i) => {
+        if (partNumberAliases.includes(h)) partNumberIndex = i;
+        if (partNameAliases.includes(h)) partNameIndex = i;
+    });
 
- if (category_name) {
- const category = await dbGet("SELECT id FROM categories WHERE name = ?", [category_name]);
- if (category) {
- categoryId = category.id;
- } else {
- const result = await dbRun("INSERT INTO categories (name) VALUES (?)", [category_name]);
- categoryId = result.lastID;
- }
- } else if (defaultCategoryId) {
-    categoryId = defaultCategoryId;
- }
+    if (partNumberIndex === -1) {
+        return res.status(400).json({ error: `CSVヘッダーに部品番号を示す列が見つかりません。次のいずれかの列名を使用してください: ${partNumberAliases.join(', ')}` });
+    }
+    if (partNameIndex === -1) {
+        return res.status(400).json({ error: `CSVヘッダーに部品名を示す列が見つかりません。次のいずれかの列名を使用してください: ${partNameAliases.join(', ')}` });
+    }
 
- const sql = `INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?) ON CONFLICT(part_number) DO UPDATE SET part_name = excluded.part_name, category_id = excluded.category_id;`;
- await dbRun(sql, [part_number, part_name, categoryId]);
- successCount++;
- }
- if (errorCount > 0) {
- await dbRun("ROLLBACK;");
- return res.status(400).json({ error: "CSVインポートはエラーのため中断されました。", details: errors });
- }
- await dbRun("COMMIT;");
- res.json({ message: "CSVインポートが正常に完了しました。", summary: `成功: ${successCount}件, 失敗: ${errorCount}件` });
- } catch (err) {
- await dbRun("ROLLBACK;");
- res.status(500).json({ error: '予期せぬエラーが発生しました。', details: err.message });
- }
+    try {
+        await dbRun("BEGIN TRANSACTION;");
+
+        // Find or create the 'Uncategorized' category
+        let uncategorized = await dbGet("SELECT id FROM categories WHERE name = ?", ['未分類']);
+        if (!uncategorized) {
+            const result = await dbRun("INSERT INTO categories (name) VALUES (?)", ['未分類']);
+            uncategorized = { id: result.lastID };
+        }
+        const uncategorizedId = uncategorized.id;
+
+        let successCount = 0;
+        let errorCount = 0;
+        const errors = [];
+
+        for (const [index, row] of rows.entries()) {
+            const fields = row.split(',').map(field => field.trim().replace(/^"|"$/g, ''));
+            const part_number = fields[partNumberIndex];
+
+            if (!part_number) {
+                errors.push(`行 ${index + 2}: 部品番号が空です。`);
+                errorCount++;
+                continue;
+            }
+
+            const part_name = fields[partNameIndex] || part_number;
+
+            const sql = `INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?)\n                         ON CONFLICT(part_number) DO UPDATE SET\n                         part_name = excluded.part_name;`;
+            
+            // We intentionally set the category to 'Uncategorized' on import.
+            // If the part already exists, we only update its name, not its category.
+            // A small tweak to the SQL might be better: only update category if it's null.
+            // For now, the requirement is to just update the name.
+            const existingPart = await dbGet("SELECT category_id FROM parts WHERE part_number = ?", [part_number]);
+            if (existingPart) {
+                 // If part exists, update its name but preserve its category
+                 await dbRun("UPDATE parts SET part_name = ? WHERE part_number = ?", [part_name, part_number]);
+            } else {
+                // If part is new, insert it as 'Uncategorized'
+                await dbRun("INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?)", [part_number, part_name, uncategorizedId]);
+            }
+            successCount++;
+        }
+
+        if (errorCount > 0) {
+            await dbRun("ROLLBACK;");
+            return res.status(400).json({ error: "CSVインポートはエラーのため中断されました。", details: errors });
+        }
+
+        await dbRun("COMMIT;");
+        res.json({ message: "CSVインポートが正常に完了しました。", summary: `処理件数: ${successCount}件。すべての部品は「未分類」カテゴリーに登録、または既存の部品情報が更新されました。` });
+    } catch (err) {
+        await dbRun("ROLLBACK;");
+        res.status(500).json({ error: '予期せぬサーバーエラーが発生しました。', details: err.message });
+    }
 });
 
 app.get('/api/admin/users', isAuthenticated, isAdmin, async (req, res) => { try { const rows = await dbAll("SELECT id, username, role, shop_id FROM users ORDER BY id"); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });

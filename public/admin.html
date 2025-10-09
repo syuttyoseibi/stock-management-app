@@ -110,6 +110,7 @@
         <button onclick="showTab('user-management', this)">ユーザー管理</button>
         <button onclick="showTab('employee-management', this)">従業員管理</button>
         <button onclick="showTab('category-management', this)">カテゴリー管理</button>
+        <button onclick="showTab('uncategorized-parts-management', this)">未分類部品</button>
         <button onclick="showTab('inventory-management', this)">在庫管理</button>
         <button onclick="showTab('order-management', this)">発注管理</button>
         <button onclick="showTab('stocktake-management', this)">棚卸し</button>
@@ -157,12 +158,9 @@
 
             <h3>CSVから部品を一括登録</h3>
             <div class="form-group">
-                <label for="csv-file-input">CSVファイル (品番, 部品名, カテゴリー名):</label>
+                <label for="csv-file-input">CSVファイル:</label>
                 <input type="file" id="csv-file-input" accept=".csv">
-            </div>
-            <div class="form-group">
-                <label for="csv-default-category">カテゴリーが空の場合のデフォルトカテゴリー:</label>
-                <select id="csv-default-category"><option value="">-- 指定しない --</option></select>
+                <small style="display: block; margin-top: 5px; color: #6c757d;">※ファイルには「品番(part_number)」と「品名(part_name)」に該当する列を含めてください。</small>
             </div>
             <button class="btn-primary" onclick="importPartsCSV()">インポート実行</button>
             <p id="import-parts-message"></p>
@@ -250,6 +248,27 @@
             <table id="categories-table">
                 <thead><tr><th>ID</th><th>カテゴリー名</th><th>操作</th></tr></thead>
                 <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="uncategorized-parts-management" class="tab-content hidden">
+        <div class="section">
+            <h2>未分類部品のカテゴリー設定</h2>
+            <p>CSVからインポートされた、まだカテゴリーが設定されていない部品の一覧です。各部品にカテゴリーを割り当ててください。</p>
+            <p id="uncategorized-parts-message"></p>
+            <table id="uncategorized-parts-table">
+                <thead>
+                    <tr>
+                        <th>品番</th>
+                        <th>部品名</th>
+                        <th>割り当てるカテゴリー</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Uncategorized parts will be loaded here by JavaScript -->
+                </tbody>
             </table>
         </div>
     </div>
@@ -546,6 +565,7 @@
             await loadReorderList();
             await loadUsageHistory();
             await loadInventoryLocations();
+            await loadUncategorizedParts();
         }
 
         // --- Shop Management ---
@@ -810,37 +830,112 @@
                 return;
             }
 
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-                const csvData = event.target.result;
-                const defaultCategoryId = document.getElementById('csv-default-category').value;
-                showMessage('import-parts-message', 'インポート処理を実行中...', 'info');
+            const formData = new FormData();
+            formData.append('csvFile', file); // 'csvFile' must match the name in upload.single() on the server
 
-                try {
-                    const response = await fetch('/api/admin/parts/csv', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ csvData, defaultCategoryId })
-                    });
+            showMessage('import-parts-message', 'インポート処理を実行中...', 'info');
 
-                    const result = await response.json();
+            try {
+                const response = await fetch('/api/admin/parts/csv', {
+                    method: 'POST',
+                    body: formData // Send FormData directly, browser sets Content-Type
+                });
 
-                    if (response.ok) {
-                        showMessage('import-parts-message', `${result.message} ${result.summary}`, 'success');
-                        fileInput.value = ''; // Clear file input
-                        loadParts(); // Refresh parts list
-                        loadCategories(); // Refresh categories in case new ones were added
-                    } else {
-                        let errorDetails = Array.isArray(result.details) ? result.details.join('\n') : (result.error || '不明なエラー');
-                        showMessage('import-parts-message', `インポート失敗: ${errorDetails}`, 'error');
-                        console.error('Import failed:', result);
-                    }
-                } catch (error) {
-                    showMessage('import-parts-message', `通信エラー: ${error.message}`, 'error');
+                const result = await response.json();
+
+                if (response.ok) {
+                    showMessage('import-parts-message', `${result.message} ${result.summary || ''}`, 'success');
+                    fileInput.value = ''; // Clear file input
+                    loadParts(); // Refresh parts list
+                    loadCategories(); // Refresh categories in case 'Uncategorized' was added
+                    loadUncategorizedParts(); // Refresh uncategorized list
+                } else {
+                    let errorDetails = result.details ? (Array.isArray(result.details) ? result.details.join('\n') : result.details) : (result.error || '不明なエラー');
+                    showMessage('import-parts-message', `インポート失敗: ${errorDetails}`, 'error');
+                    console.error('Import failed:', result);
                 }
-            };
+            } catch (error) {
+                showMessage('import-parts-message', `通信エラー: ${error.message}`, 'error');
+            }
+        }
 
-            reader.readAsText(file);
+        async function loadUncategorizedParts() {
+            try {
+                const response = await fetch('/api/admin/parts/uncategorized');
+                const parts = await response.json();
+                const tableBody = document.querySelector('#uncategorized-parts-table tbody');
+                tableBody.innerHTML = '';
+
+                if (parts.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="4">未分類の部品はありません。</td></tr>';
+                    return;
+                }
+
+                parts.forEach(part => {
+                    const row = tableBody.insertRow();
+                    row.id = `uncategorized-part-${part.id}`;
+                    
+                    row.insertCell().textContent = part.part_number;
+                    row.insertCell().textContent = part.part_name;
+
+                    const categoryCell = row.insertCell();
+                    const categorySelect = document.createElement('select');
+                    categorySelect.id = `uncategorized-category-select-${part.id}`;
+                    categorySelect.innerHTML = '<option value="">-- カテゴリーを選択 --</option>';
+                    allCategories.forEach(cat => {
+                        if (cat.name === '未分類') return; // Do not show 'Uncategorized' as a choice
+                        const option = document.createElement('option');
+                        option.value = cat.id;
+                        option.textContent = cat.name;
+                        categorySelect.appendChild(option);
+                    });
+                    categoryCell.appendChild(categorySelect);
+
+                    const actionCell = row.insertCell();
+                    const saveButton = document.createElement('button');
+                    saveButton.textContent = '保存';
+                    saveButton.className = 'btn-primary';
+                    saveButton.style.marginTop = '0'; // Override default margin
+                    saveButton.onclick = () => assignCategory(part.id, categorySelect.id);
+                    actionCell.appendChild(saveButton);
+                });
+            } catch (error) {
+                showMessage('uncategorized-parts-message', `未分類部品の読み込みエラー: ${error.message}`, 'error');
+            }
+        }
+
+        async function assignCategory(partId, selectId) {
+            const selectElement = document.getElementById(selectId);
+            const categoryId = selectElement.value;
+
+            if (!categoryId) {
+                showMessage('uncategorized-parts-message', 'カテゴリーを選択してください。', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/admin/parts/${partId}/category`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ categoryId: categoryId })
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error);
+                }
+                
+                showMessage('uncategorized-parts-message', 'カテゴリーを保存しました。', 'success');
+                
+                // Remove the row from the table on success
+                const rowToRemove = document.getElementById(`uncategorized-part-${partId}`);
+                if (rowToRemove) {
+                    rowToRemove.remove();
+                }
+
+            } catch (error) {
+                showMessage('uncategorized-parts-message', `保存エラー: ${error.message}`, 'error');
+            }
         }
 
         // --- User Management ---
