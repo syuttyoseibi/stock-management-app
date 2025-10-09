@@ -494,11 +494,12 @@ app.post('/api/admin/parts/csv', isAuthenticated, isAdmin, upload.single('csvFil
                 }
             }
 
-            const sql = `INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?)
-                         ON CONFLICT(part_number) DO UPDATE SET
-                         part_name = excluded.part_name,
-                         category_id = excluded.category_id;`;
-            await dbRun(sql, [part_number, part_name, categoryId]);
+            const existingPart = await dbGet("SELECT id FROM parts WHERE part_number = ?", [part_number]);
+            if (existingPart) {
+                await dbRun("UPDATE parts SET part_name = ?, category_id = ? WHERE id = ?", [part_name, categoryId, existingPart.id]);
+            } else {
+                await dbRun("INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?)", [part_number, part_name, categoryId]);
+            }
             successCount++;
         }
 
