@@ -71,6 +71,25 @@
         .category-header.active::after {
             content: "\2212"; /* Unicode character for "-" sign */
         }
+
+        .stock-badge {
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+            margin-left: 8px;
+        }
+        .stock-safe {
+            background-color: #28a745; /* Green */
+        }
+        .stock-warning {
+            background-color: #ffc107; /* Yellow */
+            color: black;
+        }
+        .stock-danger {
+            background-color: #dc3545; /* Red */
+        }
     </style>
 </head>
 <body>
@@ -307,13 +326,26 @@
                     const panel = document.createElement('div');
                     panel.className = 'category-panel';
 
+                    const getStockStatusInfo = (quantity, min_reorder_level) => {
+                        if (quantity <= 0) return { className: 'stock-danger', text: '在庫なし' };
+                        if (quantity <= min_reorder_level) return { className: 'stock-danger', text: `残 ${quantity}` };
+                        if (quantity <= min_reorder_level * 1.5) return { className: 'stock-warning', text: `残 ${quantity}` };
+                        return { className: 'stock-safe', text: `残 ${quantity}` };
+                    };
+
                     partsByCategory[category].forEach(part => {
                         const item = document.createElement('div');
                         item.className = 'part-item';
+                        
+                        const statusInfo = getStockStatusInfo(part.quantity, part.min_reorder_level);
+
                         item.innerHTML = `
-                            <span>${part.part_name} (品番: ${part.part_number}, 在庫: ${part.quantity})</span>
+                            <span>
+                                ${part.part_name} (品番: ${part.part_number})
+                                <span class="stock-badge ${statusInfo.className}">${statusInfo.text}</span>
+                            </span>
                             <button class="use-button" onclick="usePart(${part.id}, '${part.part_name}')" ${part.quantity <= 0 ? 'disabled' : ''}>
-                                ${part.quantity <= 0 ? '在庫なし' : '使用'}
+                                使用
                             </button>
                         `;
                         panel.appendChild(item);

@@ -157,6 +157,7 @@ app.get('/api/shops/:shopId/inventory', isAuthenticated, async (req, res) => { c
             c.id as category_id, 
             c.name as category_name, 
             i.quantity, 
+            i.min_reorder_level, 
             i.location_info 
         FROM 
             parts p 

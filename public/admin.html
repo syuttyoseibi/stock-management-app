@@ -57,6 +57,27 @@
         .close-button { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
         .close-button:hover, .close-button:focus { color: black; text-decoration: none; cursor: pointer; }
 
+        .stock-badge {
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+            display: inline-block;
+            min-width: 50px;
+            text-align: center;
+        }
+        .stock-safe {
+            background-color: #28a745; /* Green */
+        }
+        .stock-warning {
+            background-color: #ffc107; /* Yellow */
+            color: black;
+        }
+        .stock-danger {
+            background-color: #dc3545; /* Red */
+        }
+
         /* Responsive adjustments for stocktake table */
         .actual-stock-input {
             width: 70px; /* Ensure enough width for numbers */
@@ -1057,6 +1078,13 @@
                 const inventory = await response.json();
                 tableBody.innerHTML = '';
 
+                const getStockStatusInfo = (quantity, min_reorder_level) => {
+                    if (quantity <= 0) return { className: 'stock-danger', text: quantity };
+                    if (quantity <= min_reorder_level) return { className: 'stock-danger', text: quantity };
+                    if (quantity <= min_reorder_level * 1.5) return { className: 'stock-warning', text: quantity };
+                    return { className: 'stock-safe', text: quantity };
+                };
+
                 if (inventory.length === 0) {
                     tableBody.innerHTML = '<tr><td colspan="5">この工場には在庫がありません。</td></tr>';
                     return;
@@ -1068,9 +1096,11 @@
 
                     row.insertCell().textContent = item.part_number;
                     row.insertCell().textContent = item.part_name;
+                    
+                    const statusInfo = getStockStatusInfo(item.quantity, item.min_reorder_level);
                     const systemStockCell = row.insertCell();
-                    systemStockCell.textContent = item.quantity;
-                    systemStockCell.className = 'system-stock';
+                    systemStockCell.innerHTML = `<span class="stock-badge ${statusInfo.className}">${statusInfo.text}</span>`;
+                    systemStockCell.className = 'system-stock'; // Keep class for selector
 
                     const actualStockCell = row.insertCell();
                     const actualStockInput = document.createElement('input');
@@ -1171,12 +1201,24 @@
         function renderAllInventoryTable(inventory) {
             const tableBody = document.querySelector('#all-inventory-table tbody');
             tableBody.innerHTML = '';
+
+            const getStockStatusInfo = (quantity, min_reorder_level) => {
+                if (quantity <= 0) return { className: 'stock-danger', text: quantity };
+                if (quantity <= min_reorder_level) return { className: 'stock-danger', text: quantity };
+                if (quantity <= min_reorder_level * 1.5) return { className: 'stock-warning', text: quantity };
+                return { className: 'stock-safe', text: quantity };
+            };
+
             inventory.forEach(item => {
                 const row = tableBody.insertRow();
                 row.insertCell().textContent = item.shop_name;
                 row.insertCell().textContent = item.part_number;
                 row.insertCell().textContent = item.part_name;
-                row.insertCell().textContent = item.quantity;
+                
+                const statusInfo = getStockStatusInfo(item.quantity, item.min_reorder_level);
+                const quantityCell = row.insertCell();
+                quantityCell.innerHTML = `<span class="stock-badge ${statusInfo.className}">${statusInfo.text}</span>`;
+
                 row.insertCell().textContent = item.min_reorder_level;
                 row.insertCell().textContent = item.location_info;
                 const itemCopy = JSON.parse(JSON.stringify(item));
