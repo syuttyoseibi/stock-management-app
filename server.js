@@ -437,13 +437,16 @@ app.post('/api/admin/parts/csv', isAuthenticated, isAdmin, upload.single('csvFil
 
     const partNumberAliases = ['part_number', 'part-number', 'part number', '部品番号', '品番'];
     const partNameAliases = ['part_name', 'part-name', 'part name', '部品名', '品名'];
+    const categoryNameAliases = ['category_name', 'category', 'カテゴリー名', 'カテゴリー'];
 
     let partNumberIndex = -1;
     let partNameIndex = -1;
+    let categoryNameIndex = -1;
 
     header.forEach((h, i) => {
         if (partNumberAliases.includes(h)) partNumberIndex = i;
         if (partNameAliases.includes(h)) partNameIndex = i;
+        if (categoryNameAliases.includes(h)) categoryNameIndex = i;
     });
 
     if (partNumberIndex === -1) {
@@ -456,7 +459,6 @@ app.post('/api/admin/parts/csv', isAuthenticated, isAdmin, upload.single('csvFil
     try {
         await dbRun("BEGIN TRANSACTION;");
 
-        // Find or create the 'Uncategorized' category
         let uncategorized = await dbGet("SELECT id FROM categories WHERE name = ?", ['未分類']);
         if (!uncategorized) {
             const result = await dbRun("INSERT INTO categories (name) VALUES (?)", ['未分類']);
@@ -479,21 +481,24 @@ app.post('/api/admin/parts/csv', isAuthenticated, isAdmin, upload.single('csvFil
             }
 
             const part_name = fields[partNameIndex] || part_number;
+            const category_name = (categoryNameIndex !== -1) ? fields[categoryNameIndex] : null;
+            let categoryId = uncategorizedId;
 
-            const sql = `INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?)\n                         ON CONFLICT(part_number) DO UPDATE SET\n                         part_name = excluded.part_name;`;
-            
-            // We intentionally set the category to 'Uncategorized' on import.
-            // If the part already exists, we only update its name, not its category.
-            // A small tweak to the SQL might be better: only update category if it's null.
-            // For now, the requirement is to just update the name.
-            const existingPart = await dbGet("SELECT category_id FROM parts WHERE part_number = ?", [part_number]);
-            if (existingPart) {
-                 // If part exists, update its name but preserve its category
-                 await dbRun("UPDATE parts SET part_name = ? WHERE part_number = ?", [part_name, part_number]);
-            } else {
-                // If part is new, insert it as 'Uncategorized'
-                await dbRun("INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?)", [part_number, part_name, uncategorizedId]);
+            if (category_name) {
+                const category = await dbGet("SELECT id FROM categories WHERE name = ?", [category_name]);
+                if (category) {
+                    categoryId = category.id;
+                } else {
+                    const result = await dbRun("INSERT INTO categories (name) VALUES (?)", [category_name]);
+                    categoryId = result.lastID;
+                }
             }
+
+            const sql = `INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?)
+                         ON CONFLICT(part_number) DO UPDATE SET
+                         part_name = excluded.part_name,
+                         category_id = excluded.category_id;`;
+            await dbRun(sql, [part_number, part_name, categoryId]);
             successCount++;
         }
 
@@ -503,7 +508,7 @@ app.post('/api/admin/parts/csv', isAuthenticated, isAdmin, upload.single('csvFil
         }
 
         await dbRun("COMMIT;");
-        res.json({ message: "CSVインポートが正常に完了しました。", summary: `処理件数: ${successCount}件。すべての部品は「未分類」カテゴリーに登録、または既存の部品情報が更新されました。` });
+        res.json({ message: "CSVインポートが正常に完了しました。", summary: `処理件数: ${successCount}件。` });
     } catch (err) {
         await dbRun("ROLLBACK;");
         res.status(500).json({ error: '予期せぬサーバーエラーが発生しました。', details: err.message });
