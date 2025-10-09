@@ -56,6 +56,20 @@
         .modal-content { background-color: #fefefe; margin: 10% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 500px; border-radius: 8px; }
         .close-button { color: #aaa; float: right; font-size: 28px; font-weight: bold; }
         .close-button:hover, .close-button:focus { color: black; text-decoration: none; cursor: pointer; }
+
+        /* Responsive adjustments for stocktake table */
+        .actual-stock-input {
+            width: 70px; /* Ensure enough width for numbers */
+            padding: 8px 5px;
+            box-sizing: border-box;
+        }
+
+        @media (max-width: 600px) {
+            #stocktake-table th, #stocktake-table td {
+                padding: 8px 4px; /* Reduce padding on small screens */
+                font-size: 14px;
+            }
+        }
     </style>
 </head>
 <body>
