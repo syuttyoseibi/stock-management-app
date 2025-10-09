@@ -773,6 +773,7 @@ app.post('/api/admin/csv/guess-mapping', isAuthenticated, isAdmin, async (req, r
 });
 
 app.post('/api/admin/csv/process-advanced', isAuthenticated, isAdmin, upload.single('csvfile'), async (req, res) => {
+    console.log('[AI Import] /process-advanced API endpoint hit.'); // Log entry point
     if (!req.file) {
         return res.status(400).json({ error: 'ファイルがアップロードされていません。' });
     }
