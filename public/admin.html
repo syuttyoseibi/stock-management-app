@@ -10,37 +10,19 @@
         body {
             background-color: #f8f9fa;
         }
-        .sidebar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            height: 100vh;
-            width: 250px;
-            background-color: #343a40;
-            color: white;
-            padding-top: 1rem;
-        }
         .main-content {
-            margin-left: 250px;
             padding: 2rem;
         }
-        .sidebar .nav-link {
-            color: #adb5bd;
+        @media (min-width: 768px) {
+            .main-content {
+                margin-left: 250px;
+            }
         }
-        .sidebar .nav-link.active,
-        .sidebar .nav-link:hover {
-            color: #fff;
-            background-color: #495057;
-        }
-        .sidebar .nav-link .bi {
-            margin-right: 0.5rem;
-        }
+
         .logout-button {
-            position: absolute;
-            bottom: 1rem;
-            left: 1rem;
-            right: 1rem;
+            margin-top: auto;
         }
+
         .card {
             margin-bottom: 1.5rem;
         }
@@ -63,29 +45,58 @@
         .stock-safe { background-color: #198754; }
         .stock-warning { background-color: #ffc107; color: black; }
         .stock-danger { background-color: #dc3545; }
+
+        .header {
+            display: none;
+        }
+
+        @media (max-width: 767.98px) {
+            .main-content {
+                margin-left: 0;
+            }
+            .header {
+                display: flex !important;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="sidebar d-flex flex-column p-3">
-        <a href="#" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none">
+    <header class="header d-md-none d-flex justify-content-between align-items-center p-3 bg-dark text-white">
+        <a href="#" class="d-flex align-items-center text-white text-decoration-none">
             <i class="bi bi-box-seam fs-4 me-2"></i>
             <span class="fs-4">ZAIKO</span>
         </a>
-        <hr>
-        <ul class="nav nav-pills flex-column mb-auto">
-            <li class="nav-item">
-                <a href="#inventory-management" class="nav-link active" data-bs-toggle="tab" onclick="showTab(\'inventory-management\')"><i class="bi bi-boxes"></i>在庫管理</a>
-            </li>
-            <li>
-                <a href="#master-data" class="nav-link" data-bs-toggle="tab" onclick="showTab(\'master-data\')"><i class="bi bi-database"></i>マスター管理</a>
-            </li>
-            <li>
-                <a href="#reports" class="nav-link" data-bs-toggle="tab" onclick="showTab(\'reports\')"><i class="bi bi-file-earmark-bar-graph"></i>レポート</a>
-            </li>
-        </ul>
-        <div class="logout-button">
-             <small class="text-white">ようこそ, <span id="username-display"></span>さん</small>
-            <button class="btn btn-danger w-100 mt-2" onclick="logout()"><i class="bi bi-box-arrow-right"></i> ログアウト</button>
+        <button class="btn btn-dark" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebarMenu" aria-controls="sidebarMenu">
+            <i class="bi bi-list fs-3"></i>
+        </button>
+    </header>
+
+    <div class="offcanvas-md offcanvas-start bg-dark text-white" tabindex="-1" id="sidebarMenu" aria-labelledby="sidebarMenuLabel">
+        <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="sidebarMenuLabel">ZAIKO Menu</h5>
+            <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" data-bs-target="#sidebarMenu" aria-label="Close"></button>
+        </div>
+        <div class="offcanvas-body d-flex flex-column p-3">
+             <a href="#" class="d-none d-md-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none">
+                <i class="bi bi-box-seam fs-4 me-2"></i>
+                <span class="fs-4">ZAIKO</span>
+            </a>
+            <hr class="d-none d-md-block">
+            <ul class="nav nav-pills flex-column mb-auto">
+                <li class="nav-item">
+                    <a href="#inventory-management" class="nav-link active" data-bs-toggle="tab" onclick="showTab(\'inventory-management\')"><i class="bi bi-boxes"></i>在庫管理</a>
+                </li>
+                <li>
+                    <a href="#master-data" class="nav-link" data-bs-toggle="tab" onclick="showTab(\'master-data\')"><i class="bi bi-database"></i>マスター管理</a>
+                </li>
+                <li>
+                    <a href="#reports" class="nav-link" data-bs-toggle="tab" onclick="showTab(\'reports\')"><i class="bi bi-file-earmark-bar-graph"></i>レポート</a>
+                </li>
+            </ul>
+            <div class="logout-button mt-auto">
+                 <small class="text-white">ようこそ, <span id="username-display"></span>さん</small>
+                <button class="btn btn-danger w-100 mt-2" onclick="logout()"><i class="bi bi-box-arrow-right"></i> ログアウト</button>
+            </div>
         </div>
     </div>
 
@@ -134,6 +145,12 @@
                                     <div class="mb-3">
                                         <label for="replenish-shop-select" class="form-label">工場:</label>
                                         <select id="replenish-shop-select" class="form-select"></select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="replenish-category-select" class="form-label">カテゴリーで絞り込み:</label>
+                                        <select id="replenish-category-select" class="form-select" onchange="filterPartsForReplenishment()">
+                                            <option value="">すべてのカテゴリー</option>
+                                        </select>
                                     </div>
                                     <div class="mb-3">
                                         <label for="replenish-part-select" class="form-label">部品:</label>
@@ -679,8 +696,7 @@
 
                 const partSelects = [
                     document.getElementById('inventory-part-select'), 
-                    document.getElementById('filter-part-id'),
-                    document.getElementById('replenish-part-select')
+                    document.getElementById('filter-part-id')
                 ];
                 partSelects.forEach(sel => {
                     if (!sel) return;
@@ -692,7 +708,26 @@
                     });
                     sel.value = currentValue;
                 });
+                filterPartsForReplenishment(); // 補充タブの部品リストを初期化
             } catch (error) { showMessage('add-part-message', `部品の読み込みエラー: ${error.message}`, 'danger'); }
+        }
+
+        function filterPartsForReplenishment() {
+            const categoryId = document.getElementById('replenish-category-select').value;
+            const partSelect = document.getElementById('replenish-part-select');
+            const currentValue = partSelect.value;
+            
+            partSelect.innerHTML = '<option value="">-- 部品を選択 --</option>'; // デフォルトオプション
+
+            const filteredParts = categoryId 
+                ? allParts.filter(p => p.category_id == categoryId)
+                : allParts;
+
+            filteredParts.forEach(part => {
+                partSelect.innerHTML += `<option value="${part.id}">${part.part_name} (${part.part_number})</option>`;
+            });
+
+            partSelect.value = currentValue;
         }
 
         async function addPart() {
@@ -844,11 +879,11 @@
                 allCategories.forEach(cat => {
                     tableBody.insertRow().innerHTML = `<td>${cat.id}</td><td>${cat.name}</td><td><button class="btn btn-sm btn-secondary" onclick="openEditCategoryModal(${cat.id})">編集</button> <button class="btn btn-sm btn-danger" onclick="deleteCategory(${cat.id}, '${cat.name}')">削除</button></td>`;
                 });
-                const categorySelects = [document.getElementById('new-part-category'), document.getElementById('edit-part-category')];
+                const categorySelects = [document.getElementById('new-part-category'), document.getElementById('edit-part-category'), document.getElementById('replenish-category-select')];
                 categorySelects.forEach(sel => {
                     if (!sel) return;
                     const currentValue = sel.value;
-                    sel.innerHTML = '<option value="">カテゴリーなし</option>';
+                    sel.innerHTML = '<option value="">すべてのカテゴリー</option>';
                     allCategories.forEach(cat => { sel.innerHTML += `<option value="${cat.id}">${cat.name}</option>`; });
                     sel.value = currentValue;
                 });
