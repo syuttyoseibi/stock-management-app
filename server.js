@@ -54,6 +54,7 @@ const initializeDatabase = async () => {
     await dbRun(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, shop_id INTEGER, role TEXT NOT NULL, FOREIGN KEY (shop_id) REFERENCES shops(id))`);
     await dbRun(`CREATE TABLE IF NOT EXISTS cancellation_history (id INTEGER PRIMARY KEY AUTOINCREMENT, usage_history_id INTEGER NOT NULL, cancelled_by_user_id INTEGER NOT NULL, cancelled_at TEXT NOT NULL, reason TEXT, FOREIGN KEY (usage_history_id) REFERENCES usage_history(id), FOREIGN KEY (cancelled_by_user_id) REFERENCES users(id))`);
     await dbRun(`CREATE TABLE IF NOT EXISTS stocktake_history (id INTEGER PRIMARY KEY AUTOINCREMENT, part_id INTEGER NOT NULL, shop_id INTEGER NOT NULL, user_id INTEGER NOT NULL, stocktake_time TEXT NOT NULL, quantity_before INTEGER NOT NULL, quantity_after INTEGER NOT NULL, notes TEXT, FOREIGN KEY (part_id) REFERENCES parts(id), FOREIGN KEY (shop_id) REFERENCES shops(id), FOREIGN KEY (user_id) REFERENCES users(id))`);
+    await dbRun(`CREATE TABLE IF NOT EXISTS replenishment_history (id INTEGER PRIMARY KEY AUTOINCREMENT, part_id INTEGER NOT NULL, shop_id INTEGER NOT NULL, user_id INTEGER NOT NULL, replenished_at TEXT NOT NULL, quantity_added INTEGER NOT NULL, FOREIGN KEY (part_id) REFERENCES parts(id), FOREIGN KEY (shop_id) REFERENCES shops(id), FOREIGN KEY (user_id) REFERENCES users(id))`);
 
     const shopsCount = await dbGet("SELECT COUNT(*) AS count FROM shops");
     if (shopsCount.count === 0) {
@@ -740,6 +741,51 @@ app.post('/api/admin/inventory/stocktake', isAuthenticated, isAdmin, async (req,
  }
  }
 });
+
+app.post('/api/admin/inventory/replenish', isAuthenticated, isAdmin, async (req, res) => {
+    const { shop_id, part_id, quantity_added } = req.body;
+    const user_id = req.session.user.id;
+
+    if (!shop_id || !part_id || !quantity_added) {
+        return res.status(400).json({ error: '工場、部品、および補充数量は必須です。' });
+    }
+
+    const quantity = parseInt(quantity_added, 10);
+    if (isNaN(quantity) || quantity <= 0) {
+        return res.status(400).json({ error: '補充数量は正の整数である必要があります。' });
+    }
+
+    try {
+        await dbRun("BEGIN TRANSACTION;");
+
+        // Check if inventory entry exists
+        const inventory = await dbGet("SELECT id FROM inventories WHERE part_id = ? AND shop_id = ?", [part_id, shop_id]);
+        
+        if (inventory) {
+            // Update existing inventory
+            await dbRun("UPDATE inventories SET quantity = quantity + ? WHERE id = ?", [quantity, inventory.id]);
+        } else {
+            // Create new inventory entry if it doesn't exist. Default min_reorder_level to 0.
+            await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, 0, '')", [part_id, shop_id, quantity]);
+        }
+
+        // Log the replenishment
+        await dbRun(
+            `INSERT INTO replenishment_history (part_id, shop_id, user_id, replenished_at, quantity_added) VALUES (?, ?, ?, datetime('now', 'localtime'), ?)`,
+            [part_id, shop_id, user_id, quantity]
+        );
+
+        await dbRun("COMMIT;");
+        
+        const new_quantity = await dbGet("SELECT quantity FROM inventories WHERE part_id = ? AND shop_id = ?", [part_id, shop_id]);
+
+        res.json({ message: '在庫の補充が正常に完了しました。', new_quantity: new_quantity.quantity });
+    } catch (err) {
+        await dbRun("ROLLBACK;");
+        res.status(500).json({ error: '補充処理中にエラーが発生しました。', details: err.message });
+    }
+});
+
 
 app.get('/api/admin/all-usage-history', isAuthenticated, isAdmin, async (req, res) => { const { startDate, endDate, shopId, partId } = req.query;
  let sql = `SELECT 
