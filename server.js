@@ -742,7 +742,24 @@ app.post('/api/admin/inventory/stocktake', isAuthenticated, isAdmin, async (req,
 });
 
 app.get('/api/admin/all-usage-history', isAuthenticated, isAdmin, async (req, res) => { const { startDate, endDate, shopId, partId } = req.query;
- let sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, h.usage_time, e.name as employee_name FROM usage_history h LEFT JOIN shops s ON h.shop_id = s.id LEFT JOIN parts p ON h.part_id = p.id LEFT JOIN employees e ON h.employee_id = e.id`;
+ let sql = `SELECT 
+                s.name AS shop_name, 
+                p.part_number, 
+                p.part_name, 
+                h.usage_time, 
+                e.name as employee_name,
+                h.status,
+                ch.reason as cancellation_reason
+            FROM 
+                usage_history h
+            LEFT JOIN 
+                shops s ON h.shop_id = s.id 
+            LEFT JOIN 
+                parts p ON h.part_id = p.id 
+            LEFT JOIN 
+                employees e ON h.employee_id = e.id
+            LEFT JOIN
+                cancellation_history ch ON h.id = ch.usage_history_id`;
  const whereClauses = [];
  const params = [];
  if (startDate) {

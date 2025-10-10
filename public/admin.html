@@ -408,7 +408,7 @@
                 <button class="btn-secondary" onclick="clearReportFilters()">クリア</button>
             </div>
             <table id="usage-history-table">
-                <thead><tr><th>工場名</th><th>品番</th><th>部品名</th><th>使用日時</th><th>従業員名</th></tr></thead>
+                <thead><tr><th>工場名</th><th>品番</th><th>部品名</th><th>使用日時</th><th>従業員名</th><th>状態</th><th>取消理由</th></tr></thead>
                 <tbody></tbody>
             </table>
         </div>
@@ -1521,19 +1521,29 @@
             if (shopId) params.append('shopId', shopId);
             if (partId) params.append('partId', partId);
             const tableBody = document.querySelector('#usage-history-table tbody');
-            tableBody.innerHTML = '<tr><td colspan="5">読み込み中...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="7">読み込み中...</td></tr>';
             try {
                 const response = await fetch(`/api/admin/all-usage-history?${params.toString()}`);
                 const history = await response.json();
                 tableBody.innerHTML = '';
-                if (history.length === 0) { tableBody.innerHTML = '<tr><td colspan="5">該当する履歴はありません。</td></tr>'; return; }
+                if (history.length === 0) { tableBody.innerHTML = '<tr><td colspan="7">該当する履歴はありません。</td></tr>'; return; }
                 history.forEach(item => {
                     const row = tableBody.insertRow();
+                    if (item.status === 'cancelled') {
+                        row.style.color = 'grey';
+                        row.style.textDecoration = 'line-through';
+                    }
                     row.insertCell().textContent = item.shop_name;
                     row.insertCell().textContent = item.part_number;
                     row.insertCell().textContent = item.part_name;
                     row.insertCell().textContent = new Date(item.usage_time).toLocaleString();
                     row.insertCell().textContent = item.employee_name;
+                    
+                    const statusCell = row.insertCell();
+                    statusCell.textContent = item.status === 'cancelled' ? '取消済' : '使用中';
+                    if (item.status === 'cancelled') statusCell.style.color = 'red';
+
+                    row.insertCell().textContent = item.cancellation_reason || '';
                 });
             } catch (error) { showMessage('auth-status', `使用履歴の読み込みエラー: ${error.message}`, 'error'); }
         }
