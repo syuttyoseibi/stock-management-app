@@ -48,11 +48,12 @@ def update_supabase_url(url):
         return
 
     try:
-        # There is only one row in the table, with id=1
-        data, error = supabase.table("ngrok_url").update({"url": url}).eq("id", 1).execute()
+        # Supabase-py v2 returns a single response object
+        response = supabase.table("ngrok_url").update({"url": url}).eq("id", 1).execute()
         
-        if error:
-            raise error
+        # Check if the response object has an error attribute and if it's not None
+        if hasattr(response, 'error') and response.error:
+            raise Exception(f"API Error: {response.error.message}")
         
         print(f"SupabaseのURLを正常に更新しました: {url}")
 
