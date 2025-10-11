@@ -976,7 +976,7 @@ app.get('/api/admin/replenishment-history/csv', isAuthenticated, isAdminOrSuppli
     }
 });
 
-app.post('/api/admin/inventory-audit/run', isAuthenticated, isAdmin, async (req, res) => {
+app.post('/api/admin/inventory-audit/run', isAuthenticated, isAdminOrSupplier, async (req, res) => {
     try {
         const allCurrentInventory = await dbAll(`
             SELECT i.part_id, i.shop_id, i.quantity, p.part_name, s.name as shop_name

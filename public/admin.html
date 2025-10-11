@@ -635,14 +635,9 @@
         }
 
         function setupUIVisibility() {
-            if (currentUser.role !== 'admin') {
+            if (currentUser.role === 'supplier') {
                 document.getElementById('master-users-nav').style.display = 'none';
                 document.getElementById('master-employees-nav').style.display = 'none';
-                document.getElementById('report-audit-nav').style.display = 'none';
-                
-                document.getElementById('master-users-tab').classList.remove('fade');
-                document.getElementById('master-employees-tab').classList.remove('fade');
-                document.getElementById('report-audit-tab').classList.remove('fade');
             }
         }
 
@@ -1576,7 +1571,9 @@
                             <td><span class="badge bg-secondary">監査不可</span></td>`;
                     } else {
                         const isOk = item.difference === 0;
-                        row.classList.add(isOk ? '' : 'table-danger');
+                        if (!isOk) {
+                            row.classList.add('table-danger');
+                        }
                         row.innerHTML = `
                             <td>${item.shop_name}</td>
                             <td>${item.part_name}</td>
