@@ -1261,7 +1261,9 @@
                     
                     const input = row.querySelector('.actual-stock-input');
                     input.addEventListener('input', (e) => {
-                        const actualStock = parseInt(e.target.value, 10);
+                        let actualStock = parseInt(e.target.value, 10);
+                        if (isNaN(actualStock)) { actualStock = systemStock; } // Handle empty/invalid input
+
                         const diff = actualStock - systemStock;
                         const diffCell = row.querySelector('.difference');
                         diffCell.textContent = diff;
@@ -1551,7 +1553,7 @@
                     body: JSON.stringify({ part_id: partId, shop_id: shopId })
                 });
                 const data = await response.json();
-                if (!response.ok) throw new Error(data.error);
+                if (!response.ok) throw new Error(data.error || '分析データの取得に失敗しました');
 
                 const { summary, details } = data;
                 const physicalDifference = actualStock - systemStock;
@@ -1582,16 +1584,16 @@
 
                 if (internalDifference !== 0) {
                     analysisHTML += `<p class="alert alert-warning"><strong>警告:</strong> システム内部で記録のズレ(${internalDifference})が検知されました。補充処理の反映漏れや、データ処理上の問題の可能性があります。</p>`;
-                } else {
-                    analysisHTML += `<p class="alert alert-success">システム内部の記録は整合性が取れています。</p>`;
                 }
 
                 if (physicalDifference > 0) {
                     analysisHTML += `<p class="alert alert-info"><strong>情報:</strong> 物理的な在庫が、システムの記録より ${physicalDifference} 個多くなっています。記録されていない補充（返品など）があった可能性があります。</p>`;
                 } else if (physicalDifference < 0) {
-                    analysisHTML += `<p class="alert alert-danger"><strong>問題:</strong> 物理的な在庫が、システムの記録より ${Math.abs(physicalDifference)} 個少なくなっています。システム内部の記録は正常なため、記録されていない在庫の移動（使用、紛失、破損など）があった可能性が高いです。</p>`;
-                } else {
-                     analysisHTML += `<p class="alert alert-success">物理的な在庫とシステム上の在庫に差異はありませんでした。</p>`;
+                    analysisHTML += `<p class="alert alert-danger"><strong>問題:</strong> 物理的な在庫が、システムの記録より ${Math.abs(physicalDifference)} 個少なくなっています。システム内部の記録が正常な場合は、記録されていない在庫の移動（使用、紛失、破損など）があった可能性が高いです。</p>`;
+                } 
+                
+                if (internalDifference === 0 && physicalDifference === 0) {
+                    analysisHTML += `<p class="alert alert-success">物理的な在庫とシステム上の在庫に差異はありませんでした。</p>`;
                 }
 
                 analysisHTML += `
