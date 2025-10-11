@@ -976,73 +976,83 @@ app.get('/api/admin/replenishment-history/csv', isAuthenticated, isAdminOrSuppli
     }
 });
 
-app.post('/api/admin/inventory-audit/run', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+app.post('/api/admin/stocktake-analysis', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { part_id, shop_id } = req.body;
+    if (!part_id || !shop_id) {
+        return res.status(400).json({ error: 'Part ID and Shop ID are required' });
+    }
+
     try {
-        const allCurrentInventory = await dbAll(`
-            SELECT i.part_id, i.shop_id, i.quantity, p.part_name, s.name as shop_name
-            FROM inventories i
-            JOIN parts p ON i.part_id = p.id
-            JOIN shops s ON i.shop_id = s.id
-        `);
+        // 1. Find the last stocktake as the base point
+        let base_time = '1970-01-01 00:00:00';
+        let base_quantity = 0;
 
-        const auditResults = await Promise.all(allCurrentInventory.map(async (inv) => {
-            const { part_id, shop_id, quantity, part_name, shop_name } = inv;
+        const lastStocktake = await dbGet(`
+            SELECT stocktake_time, quantity_after 
+            FROM stocktake_history
+            WHERE part_id = ? AND shop_id = ?
+            ORDER BY stocktake_time DESC
+            LIMIT 1
+        `, [part_id, shop_id]);
 
-            const lastStocktake = await dbGet(`
-                SELECT stocktake_time, quantity_after 
-                FROM stocktake_history
+        if (lastStocktake) {
+            base_time = lastStocktake.stocktake_time;
+            base_quantity = lastStocktake.quantity_after;
+        } else {
+            // If no stocktake, find the first replenishment as a fallback base
+            const firstReplenishment = await dbGet(`
+                SELECT replenished_at, quantity_added
+                FROM replenishment_history
                 WHERE part_id = ? AND shop_id = ?
-                ORDER BY stocktake_time DESC
+                ORDER BY replenished_at ASC
                 LIMIT 1
             `, [part_id, shop_id]);
-
-            if (!lastStocktake) {
-                return {
-                    part_id, shop_id, part_name, shop_name,
-                    status: 'no_basepoint', // 監査基準なし
-                    message: 'この品目は棚卸し履歴がないため監査できません。'
-                };
+            if(firstReplenishment) {
+                 base_time = firstReplenishment.replenished_at;
+                 base_quantity = firstReplenishment.quantity_added;
             }
+        }
 
-            const baseTime = lastStocktake.stocktake_time;
-            const baseQuantity = lastStocktake.quantity_after;
+        // 2. Get all detailed records since the base time
+        const replenishments = await dbAll(
+            `SELECT rh.replenished_at, rh.quantity_added, u.username 
+             FROM replenishment_history rh JOIN users u ON rh.user_id = u.id 
+             WHERE rh.part_id = ? AND rh.shop_id = ? AND rh.replenished_at > ? ORDER BY rh.replenished_at DESC`,
+            [part_id, shop_id, base_time]
+        );
 
-            const replenishments = await dbGet(
-                `SELECT SUM(quantity_added) as total FROM replenishment_history WHERE part_id = ? AND shop_id = ? AND replenished_at > ?`,
-                [part_id, shop_id, baseTime]
-            );
-            const totalReplenished = replenishments?.total || 0;
+        const usages = await dbAll(
+            `SELECT h.usage_time, h.status, e.name as employee_name 
+             FROM usage_history h JOIN employees e ON h.employee_id = e.id
+             WHERE h.part_id = ? AND h.shop_id = ? AND h.usage_time > ? ORDER BY h.usage_time DESC`,
+            [part_id, shop_id, base_time]
+        );
 
-            const usages = await dbGet(
-                `SELECT COUNT(*) as total FROM usage_history WHERE part_id = ? AND shop_id = ? AND status = 'active' AND usage_time > ?`,
-                [part_id, shop_id, baseTime]
-            );
-            const totalUsed = usages?.total || 0;
+        // 3. Calculate summary
+        const total_replenished = replenishments.reduce((sum, r) => sum + r.quantity_added, 0);
+        const total_used = usages.filter(u => u.status === 'active').length;
+        const total_cancelled = usages.filter(u => u.status === 'cancelled').length;
+        
+        const calculated_stock = base_quantity + total_replenished - total_used + total_cancelled;
 
-            const cancellations = await dbGet(
-                `SELECT COUNT(*) as total FROM usage_history WHERE part_id = ? AND shop_id = ? AND status = 'cancelled' AND usage_time > ?`,
-                [part_id, shop_id, baseTime]
-            );
-            const totalCancelled = cancellations?.total || 0;
-
-            const expectedQuantity = baseQuantity + totalReplenished - totalUsed + totalCancelled;
-            const difference = quantity - expectedQuantity;
-
-            return {
-                part_id, shop_id, part_name, shop_name,
-                status: 'audited',
-                last_audit_point: baseTime,
-                expected_quantity: expectedQuantity,
-                actual_quantity: quantity,
-                difference: difference
-            };
-        }));
-
-        res.json(auditResults);
+        res.json({
+            summary: {
+                base_time,
+                base_quantity,
+                total_replenished,
+                total_used,
+                total_cancelled,
+                calculated_stock
+            },
+            details: {
+                replenishments,
+                usages
+            }
+        });
 
     } catch (err) {
-        console.error("Inventory audit failed:", err);
-        res.status(500).json({ error: '在庫監査の実行中にエラーが発生しました。', details: err.message });
+        console.error("Stocktake analysis failed:", err);
+        res.status(500).json({ error: '分析データの取得中にエラーが発生しました。', details: err.message });
     }
 });
 

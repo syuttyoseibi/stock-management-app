@@ -43,6 +43,8 @@
         .header {
             display: flex !important;
         }
+        .details-section { display: none; }
+        .details-section h6 { cursor: pointer; color: #0d6efd; }
     </style>
 </head>
 <body>
@@ -157,7 +159,7 @@
                             <div id="stocktake-area" class="d-none">
                                 <div class="table-responsive">
                                     <table id="stocktake-table" class="table table-sm">
-                                        <thead><tr><th>品番</th><th>部品名</th><th>システム在庫</th><th>実在庫</th><th>差異</th></tr></thead>
+                                        <thead><tr><th>品番</th><th>部品名</th><th>システム在庫</th><th>実在庫</th><th>差異</th><th>分析</th></tr></thead>
                                         <tbody></tbody>
                                     </table>
                                 </div>
@@ -304,7 +306,6 @@
                             <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#report-reorder-tab">発注リスト</a></li>
                             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#report-usage-tab">使用履歴</a></li>
                             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#report-replenishment-history-tab">補充履歴</a></li>
-                            <li class="nav-item" id="report-audit-nav"><a class="nav-link" data-bs-toggle="tab" href="#report-audit-tab">在庫監査</a></li>
                         </ul>
                     </div>
                     <div class="card-body tab-content">
@@ -363,35 +364,6 @@
                                 </table>
                             </div>
                         </div>
-                        <!-- 在庫監査 -->
-                        <div class="tab-pane fade" id="report-audit-tab">
-                            <h4>在庫監査レポート</h4>
-                            <p>各品目の最終棚卸し時点を基準として、その後の入出庫（補充・使用）履歴から算出した理論在庫と、現在の実在庫を比較します。</p>
-                            <div class="mb-3">
-                                <button class="btn btn-primary" id="run-audit-btn" onclick="runInventoryAudit()">
-                                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
-                                    監査を実行
-                                </button>
-                            </div>
-                            <div class="table-responsive">
-                                <table id="audit-results-table" class="table table-hover">
-                                    <thead>
-                                        <tr>
-                                            <th>工場</th>
-                                            <th>部品</th>
-                                            <th>最終監査日時</th>
-                                            <th>理論在庫</th>
-                                            <th>実在庫</th>
-                                            <th>差異</th>
-                                            <th>ステータス</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr><td colspan="7" class="text-center">監査を実行してください。</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -399,6 +371,18 @@
     </div>
 
     <!-- Modals -->
+    <div class="modal fade" id="analysis-modal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">在庫差異 分析レポート</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body" id="analysis-modal-body">
+                    <!-- Analysis content will be injected here -->
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button></div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="replenish-from-list-modal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -1256,13 +1240,13 @@
             const tableBody = document.querySelector('#stocktake-table tbody');
             if (!shopId) { stocktakeArea.classList.add('d-none'); return; }
             stocktakeArea.classList.remove('d-none');
-            tableBody.innerHTML = '<tr><td colspan="5">在庫を読み込み中...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="6">在庫を読み込み中...</td></tr>';
             try {
                 const response = await fetch(`/api/shops/${shopId}/inventory`);
                 if (!response.ok) throw new Error('在庫の取得に失敗しました');
                 const inventory = await response.json();
                 tableBody.innerHTML = '';
-                if (inventory.length === 0) { tableBody.innerHTML = '<tr><td colspan="5">この工場には在庫がありません。</td></tr>'; return; }
+                if (inventory.length === 0) { tableBody.innerHTML = '<tr><td colspan="6">この工場には在庫がありません。</td></tr>'; return; }
                 inventory.forEach(item => {
                     const row = tableBody.insertRow();
                     row.dataset.partId = item.id;
@@ -1272,16 +1256,33 @@
                         <td>${item.part_name}</td>
                         <td class="system-stock">${systemStock}</td>
                         <td><input type="number" class="form-control form-control-sm actual-stock-input" value="${systemStock}" min="0"></td>
-                        <td class="difference fw-bold">0</td>`;
-                    row.querySelector('.actual-stock-input').addEventListener('input', (e) => {
+                        <td class="difference fw-bold">0</td>
+                        <td class="analysis-cell"></td>`;
+                    
+                    const input = row.querySelector('.actual-stock-input');
+                    input.addEventListener('input', (e) => {
                         const actualStock = parseInt(e.target.value, 10);
                         const diff = actualStock - systemStock;
                         const diffCell = row.querySelector('.difference');
                         diffCell.textContent = diff;
                         diffCell.className = `difference fw-bold ${diff === 0 ? '' : (diff > 0 ? 'text-primary' : 'text-danger')}`;
+                        
+                        const analysisCell = row.querySelector('.analysis-cell');
+                        if (diff !== 0) {
+                            if (!analysisCell.querySelector('button')) {
+                                const analysisBtn = document.createElement('button');
+                                analysisBtn.className = 'btn btn-sm btn-info';
+                                analysisBtn.textContent = '分析';
+                                analysisBtn.onclick = () => openAnalysisModal(item.id, shopId, systemStock, actualStock);
+                                analysisCell.innerHTML = '';
+                                analysisCell.appendChild(analysisBtn);
+                            }
+                        } else {
+                            analysisCell.innerHTML = '';
+                        }
                     });
                 });
-            } catch (error) { tableBody.innerHTML = `<tr><td colspan="5" class="text-danger">${error.message}</td></tr>`; }
+            } catch (error) { tableBody.innerHTML = `<tr><td colspan="6" class="text-danger">${error.message}</td></tr>`; }
         }
 
         async function updateStocktake() {
@@ -1538,61 +1539,93 @@
             loadReplenishmentHistory();
         }
 
-        async function runInventoryAudit() {
-            const btn = document.getElementById('run-audit-btn');
-            const spinner = btn.querySelector('.spinner-border');
-            const tableBody = document.querySelector('#audit-results-table tbody');
-
-            btn.disabled = true;
-            spinner.classList.remove('d-none');
-            tableBody.innerHTML = '<tr><td colspan="7" class="text-center">監査を実行中... 全ての在庫履歴を計算しています...</td></tr>';
+        async function openAnalysisModal(partId, shopId, systemStock, actualStock) {
+            const modalBody = document.getElementById('analysis-modal-body');
+            modalBody.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+            modals['analysis-modal'].show();
 
             try {
-                const response = await fetch('/api/admin/inventory-audit/run', { method: 'POST' });
-                const results = await response.json();
-                
-                if (!response.ok) {
-                    throw new Error(results.error || '監査の実行に失敗しました。');
-                }
-
-                tableBody.innerHTML = '';
-                if (results.length === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="7" class="text-center">監査対象のデータがありません。</td></tr>';
-                    return;
-                }
-
-                results.forEach(item => {
-                    const row = tableBody.insertRow();
-                    if (item.status === 'no_basepoint') {
-                        row.innerHTML = `
-                            <td>${item.shop_name}</td>
-                            <td>${item.part_name}</td>
-                            <td colspan="4" class="text-muted">${item.message}</td>
-                            <td><span class="badge bg-secondary">監査不可</span></td>`;
-                    } else {
-                        const isOk = item.difference === 0;
-                        if (!isOk) {
-                            row.classList.add('table-danger');
-                        }
-                        row.innerHTML = `
-                            <td>${item.shop_name}</td>
-                            <td>${item.part_name}</td>
-                            <td>${new Date(item.last_audit_point).toLocaleString()}</td>
-                            <td>${item.expected_quantity}</td>
-                            <td>${item.actual_quantity}</td>
-                            <td class="fw-bold">${item.difference}</td>
-                            <td><span class="badge ${isOk ? 'bg-success' : 'bg-danger'}">${isOk ? 'OK' : '差異あり'}</span></td>`;
-                    }
+                const response = await fetch('/api/admin/stocktake-analysis', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ part_id: partId, shop_id: shopId })
                 });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+
+                const { summary, details } = data;
+                const physicalDifference = actualStock - systemStock;
+                const internalDifference = systemStock - summary.calculated_stock;
+
+                let analysisHTML = `
+                    <h5>1. 今回の棚卸しで見つかった「物理的な差異」</h5>
+                    <p>システムが認識していた在庫と、実際に数えた在庫の差です。</p>
+                    <ul class="list-group mb-3">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">システム上の在庫数 <span class="badge bg-secondary rounded-pill">${systemStock}</span></li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">実際の在庫数（今回入力） <span class="badge bg-secondary rounded-pill">${actualStock}</span></li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center fw-bold">物理的な差異 <span class="badge bg-${physicalDifference === 0 ? 'success' : 'danger'} rounded-pill">${physicalDifference}</span></li>
+                    </ul>
+
+                    <h5>2. 「システム内部」の記録整合性チェック</h5>
+                    <p>分析期間: ${new Date(summary.base_time).toLocaleString()} 〜 現在</p>
+                    <ul class="list-group mb-3">
+                        <li class="list-group-item d-flex justify-content-between align-items-center">[A] 期間開始時の在庫 <span class="badge bg-secondary rounded-pill">${summary.base_quantity}</span></li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">[B] 期間中の補充記録 <h6 class="mb-0"><span class="badge bg-primary rounded-pill" onclick="toggleDetails('replenishment-details')">+${summary.total_replenished}</span></h6></li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">[C] 期間中の使用記録 <h6 class="mb-0"><span class="badge bg-warning text-dark rounded-pill" onclick="toggleDetails('usage-details')">-${summary.total_used} (取消: +${summary.total_cancelled})</span></h6></li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">[D] 記録からの理論在庫 (A+B-C) <span class="badge bg-secondary rounded-pill">${summary.calculated_stock}</span></li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">[E] 今回のシステム在庫 <span class="badge bg-secondary rounded-pill">${systemStock}</span></li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center fw-bold">システム内部差異 (E-D) <span class="badge bg-${internalDifference === 0 ? 'success' : 'danger'} rounded-pill">${internalDifference}</span></li>
+                    </ul>
+                    
+                    <h5>総合分析</h5>
+                `;
+
+                if (internalDifference !== 0) {
+                    analysisHTML += `<p class="alert alert-warning"><strong>警告:</strong> システム内部で記録のズレ(${internalDifference})が検知されました。補充処理の反映漏れや、データ処理上の問題の可能性があります。</p>`;
+                } else {
+                    analysisHTML += `<p class="alert alert-success">システム内部の記録は整合性が取れています。</p>`;
+                }
+
+                if (physicalDifference !== 0) {
+                    analysisHTML += `<p class="alert alert-danger"><strong>問題:</strong> 物理的な在庫に差異(${physicalDifference})が確認されました。システム内部の記録は正常なため、記録されていない在庫の移動（使用、紛失、破損など）があった可能性が高いです。</p>`;
+                } else {
+                    analysisHTML += `<p class="alert alert-success">物理的な在庫とシステム上の在庫に差異はありませんでした。</p>`;
+                }
+
+                analysisHTML += `
+                    <div id="replenishment-details" class="details-section mt-3">
+                        <h6>▼ 補充履歴 (${details.replenishments.length}件)</h6>
+                        <div class="table-responsive" style="max-height: 200px;">
+                            <table class="table table-sm table-bordered"><thead><tr><th>日時</th><th>数量</th><th>担当者</th></tr></thead><tbody>
+                            ${details.replenishments.map(r => `<tr><td>${new Date(r.replenished_at).toLocaleString()}</td><td>+${r.quantity_added}</td><td>${r.username}</td></tr>`).join('') || '<tr><td colspan="3">記録なし</td></tr>'}
+                            </tbody></table>
+                        </div>
+                    </div>
+                    <div id="usage-details" class="details-section mt-3">
+                        <h6>▼ 使用履歴 (${details.usages.length}件)</h6>
+                        <div class="table-responsive" style="max-height: 200px;">
+                            <table class="table table-sm table-bordered"><thead><tr><th>日時</th><th>状態</th><th>従業員</th></tr></thead><tbody>
+                            ${details.usages.map(u => `<tr class="${u.status === 'cancelled' ? 'text-muted' : ''}"><td>${new Date(u.usage_time).toLocaleString()}</td><td>${u.status === 'cancelled' ? '取消' : '使用'}</td><td>${u.employee_name}</td></tr>`).join('') || '<tr><td colspan="3">記録なし</td></tr>'}
+                            </tbody></table>
+                        </div>
+                    </div>
+                `;
+
+                modalBody.innerHTML = analysisHTML;
 
             } catch (error) {
-                tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">エラー: ${error.message}</td></tr>`;
-            } finally {
-                btn.disabled = false;
-                spinner.classList.add('d-none');
+                modalBody.innerHTML = `<div class="alert alert-danger">分析レポートの生成に失敗しました: ${error.message}</div>`;
             }
         }
 
+        function toggleDetails(sectionId) {
+            const section = document.getElementById(sectionId);
+            if (section.style.display === 'none' || section.style.display === '') {
+                section.style.display = 'block';
+            } else {
+                section.style.display = 'none';
+            }
+        }
 
         // --- Helper ---
         function togglePasswordVisibility(inputId, button) {
