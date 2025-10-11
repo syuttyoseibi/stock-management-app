@@ -68,8 +68,8 @@
                     // ログイン成功
                     console.log('Login successful:', data.user);
                     // ユーザーのロールに基づいてリダイレクト
-                    if (data.user.role === 'admin') {
-                        window.location.href = '/admin.html'; // 管理者ページへ
+                    if (data.user.role === 'admin' || data.user.role === 'supplier') {
+                        window.location.href = '/admin.html'; // 管理者・部品商ページへ
                     } else {
                         window.location.href = '/index.html'; // 整備工場ページへ
                     }
