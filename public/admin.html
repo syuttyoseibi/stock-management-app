@@ -12,8 +12,10 @@
         }
         .main-content {
             padding: 2rem;
+            transition: margin-left .3s;
         }
-        @media (min-width: 768px) {
+        /* lg(992px)以上の画面でサイドバー分のマージンを確保 */
+        @media (min-width: 992px) {
             .main-content {
                 margin-left: 250px;
             }
@@ -50,7 +52,8 @@
             display: none;
         }
 
-        @media (max-width: 767.98px) {
+        /* lg(992px)未満の画面でハンバーガーメニューを表示 */
+        @media (max-width: 991.98px) {
             .main-content {
                 margin-left: 0;
             }
@@ -61,7 +64,8 @@
     </style>
 </head>
 <body>
-    <header class="header d-md-none d-flex justify-content-between align-items-center p-3 bg-dark text-white">
+    <!-- ハンバーガーメニュー (lg未満で表示) -->
+    <header class="header d-lg-none d-flex justify-content-between align-items-center p-3 bg-dark text-white">
         <a href="#" class="d-flex align-items-center text-white text-decoration-none">
             <i class="bi bi-box-seam fs-4 me-2"></i>
             <span class="fs-4">ZAIKO</span>
@@ -71,26 +75,27 @@
         </button>
     </header>
 
-    <div class="offcanvas-md offcanvas-start bg-dark text-white" tabindex="-1" id="sidebarMenu" aria-labelledby="sidebarMenuLabel">
+    <!-- サイドバー (lg以上で固定表示、それ未満はオフキャンバス) -->
+    <div class="offcanvas-lg offcanvas-start bg-dark text-white" tabindex="-1" id="sidebarMenu" aria-labelledby="sidebarMenuLabel">
         <div class="offcanvas-header">
             <h5 class="offcanvas-title" id="sidebarMenuLabel">ZAIKO Menu</h5>
             <button type="button" class="btn-close text-reset" data-bs-dismiss="offcanvas" data-bs-target="#sidebarMenu" aria-label="Close"></button>
         </div>
         <div class="offcanvas-body d-flex flex-column p-3">
-             <a href="#" class="d-none d-md-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none">
+             <a href="#" class="d-none d-lg-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none">
                 <i class="bi bi-box-seam fs-4 me-2"></i>
                 <span class="fs-4">ZAIKO</span>
             </a>
-            <hr class="d-none d-md-block">
+            <hr class="d-none d-lg-block">
             <ul class="nav nav-pills flex-column mb-auto">
                 <li class="nav-item">
-                    <a href="#inventory-management" class="nav-link active" data-bs-toggle="tab" onclick="showTab(\'inventory-management\')"><i class="bi bi-boxes"></i>在庫管理</a>
+                    <a href="#inventory-management" class="nav-link active" data-bs-toggle="tab" onclick="showTab('inventory-management')"><i class="bi bi-boxes"></i>在庫管理</a>
                 </li>
                 <li>
-                    <a href="#master-data" class="nav-link" data-bs-toggle="tab" onclick="showTab(\'master-data\')"><i class="bi bi-database"></i>マスター管理</a>
+                    <a href="#master-data" class="nav-link" data-bs-toggle="tab" onclick="showTab('master-data')"><i class="bi bi-database"></i>マスター管理</a>
                 </li>
                 <li>
-                    <a href="#reports" class="nav-link" data-bs-toggle="tab" onclick="showTab(\'reports\')"><i class="bi bi-file-earmark-bar-graph"></i>レポート</a>
+                    <a href="#reports" class="nav-link" data-bs-toggle="tab" onclick="showTab('reports')"><i class="bi bi-file-earmark-bar-graph"></i>レポート</a>
                 </li>
             </ul>
             <div class="logout-button mt-auto">
@@ -121,11 +126,11 @@
                                 <h4>全工場の在庫状況</h4>
                             </div>
                             <div class="row g-3 mb-3">
-                                <div class="col-md-4">
+                                <div class="col-md-6">
                                     <label for="inv-filter-shop" class="form-label">工場で絞り込み:</label>
                                     <select id="inv-filter-shop" class="form-select" onchange="filterAllInventory()"><option value="">すべて</option></select>
                                 </div>
-                                <div class="col-md-4">
+                                <div class="col-md-6">
                                     <label for="inv-filter-part" class="form-label">部品名/品番で絞り込み:</label>
                                     <input type="text" id="inv-filter-part" class="form-control" oninput="filterAllInventory()" placeholder="部品名または品番を入力...">
                                 </div>
@@ -1212,7 +1217,7 @@
                     <td>${item.min_reorder_level}</td>
                     <td>${item.location_info}</td>
                     <td>
-                        <button class="btn btn-sm btn-secondary" onclick='editInventory(${JSON.stringify(item)})'>編集</button>
+                        <button class="btn btn-sm btn-secondary" onclick='editInventory(JSON.stringify(item))'>編集</button>
                         <button class="btn btn-sm btn-danger" onclick="deleteInventory(${item.shop_id}, ${item.part_id}, '${item.shop_name}', '${item.part_name}')">削除</button>
                     </td>`;
             });
@@ -1229,6 +1234,7 @@
         }
 
         function editInventory(item) {
+            item = JSON.parse(item);
             document.getElementById('inventory-shop-select').value = item.shop_id;
             document.getElementById('inventory-part-select').value = item.part_id;
             document.getElementById('inventory-quantity').value = item.quantity;
