@@ -888,7 +888,7 @@
                     tableBody.insertRow().innerHTML = `
                         <td>${part.part_number}</td>
                         <td>${part.part_name}</td>
-                        <td>${categorySelectHTML}</td>
+                        <td style="min-width: 150px;">${categorySelectHTML}</td>
                         <td><button class="btn btn-sm btn-primary" onclick="assignCategory(${part.id})">保存</button></td>`;
                 });
             } catch (error) { showMessage('uncategorized-parts-message', `未分類部品の読み込みエラー: ${error.message}`, 'danger'); }
@@ -1246,6 +1246,7 @@
             inventory.forEach(item => {
                 const statusInfo = getStockStatusInfo(item.quantity, item.min_reorder_level);
                 const row = tableBody.insertRow();
+                const itemJson = JSON.stringify(item).replace(/'/g, "\'");
                 row.innerHTML = `
                     <td>${item.shop_name}</td>
                     <td>${item.part_number}</td>
@@ -1254,7 +1255,7 @@
                     <td>${item.min_reorder_level}</td>
                     <td>${item.location_info}</td>
                     <td>
-                        <button class="btn btn-sm btn-secondary" onclick='editInventory(JSON.stringify(item))'>編集</button>
+                        <button class="btn btn-sm btn-secondary" onclick='editInventory(\'${itemJson}\')'>編集</button>
                         <button class="btn btn-sm btn-danger" onclick="deleteInventory(${item.shop_id}, ${item.part_id}, '${item.shop_name}', '${item.part_name}')">削除</button>
                     </td>`;
             });
