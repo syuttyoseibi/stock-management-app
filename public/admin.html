@@ -1246,7 +1246,7 @@
             inventory.forEach(item => {
                 const statusInfo = getStockStatusInfo(item.quantity, item.min_reorder_level);
                 const row = tableBody.insertRow();
-                const itemJson = JSON.stringify(item).replace(/'/g, "\'");
+
                 row.innerHTML = `
                     <td>${item.shop_name}</td>
                     <td>${item.part_number}</td>
@@ -1254,10 +1254,26 @@
                     <td><span class="stock-badge ${statusInfo.className}">${statusInfo.text}</span></td>
                     <td>${item.min_reorder_level}</td>
                     <td>${item.location_info}</td>
-                    <td>
-                        <button class="btn btn-sm btn-secondary" onclick='editInventory(\'${itemJson}\')'>編集</button>
-                        <button class="btn btn-sm btn-danger" onclick="deleteInventory(${item.shop_id}, ${item.part_id}, '${item.shop_name}', '${item.part_name}')">削除</button>
-                    </td>`;
+                    <td></td>`; // Action cell placeholder
+
+                const actionsCell = row.cells[6];
+
+                const editButton = document.createElement('button');
+                editButton.className = 'btn btn-sm btn-secondary';
+                editButton.textContent = '編集';
+                editButton.onclick = () => {
+                    editInventory(JSON.stringify(item));
+                };
+                
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'btn btn-sm btn-danger ms-1';
+                deleteButton.textContent = '削除';
+                deleteButton.onclick = () => {
+                    deleteInventory(item.shop_id, item.part_id, item.shop_name, item.part_name);
+                };
+
+                actionsCell.appendChild(editButton);
+                actionsCell.appendChild(deleteButton);
             });
         }
 
@@ -1271,10 +1287,10 @@
             renderAllInventoryTable(filteredData);
         }
 
-        function editInventory(item) {
-            item = JSON.parse(item);
+        function editInventory(itemString) {
+            const item = JSON.parse(itemString);
             document.getElementById('inventory-shop-select').value = item.shop_id;
-            // Set category dropdown and filter parts
+            
             const part = allParts.find(p => p.id === item.part_id);
             if (part && part.category_id) {
                 document.getElementById('inventory-category-select').value = part.category_id;
