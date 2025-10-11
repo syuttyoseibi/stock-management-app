@@ -149,9 +149,10 @@ app.put('/api/employees/:id', isAuthenticated, isShopUser, async (req, res) => {
 function isAuthenticated(req, res, next) { if (req.session.user) { next(); } else { res.status(401).json({ error: 'Unauthorized' }); } }
 function isAdmin(req, res, next) { if (req.session.user && req.session.user.role === 'admin') { next(); } else { res.status(403).json({ error: 'Forbidden: Admin access required' }); } }
 function isShopUser(req, res, next) { if (req.session.user && req.session.user.role === 'shop_user' && req.session.user.shop_id) { next(); } else { res.status(403).json({ error: 'Forbidden: Shop user access required' }); } }
+function isAdminOrSupplier(req, res, next) { if (req.session.user && (req.session.user.role === 'admin' || req.session.user.role === 'supplier')) { next(); } else { res.status(403).json({ error: 'Forbidden: Admin or Supplier access required' }); } }
 
 // --- General User APIs ---
-app.get('/api/shops', isAuthenticated, async (req, res) => { try { if (req.session.user.role === 'admin') { const rows = await dbAll("SELECT id, name FROM shops ORDER BY name"); res.json(rows); } else if (req.session.user.role === 'shop_user' && req.session.user.shop_id) { const row = await dbGet("SELECT id, name FROM shops WHERE id = ?", [req.session.user.shop_id]); res.json(row ? [row] : []); } else { res.status(403).json({ error: 'Forbidden: Invalid role or shop_id' }); } } catch (err) { res.status(500).json({ error: err.message }); } });
+app.get('/api/shops', isAuthenticated, async (req, res) => { try { if (req.session.user.role === 'admin' || req.session.user.role === 'supplier') { const rows = await dbAll("SELECT id, name FROM shops ORDER BY name"); res.json(rows); } else if (req.session.user.role === 'shop_user' && req.session.user.shop_id) { const row = await dbGet("SELECT id, name FROM shops WHERE id = ?", [req.session.user.shop_id]); res.json(row ? [row] : []); } else { res.status(403).json({ error: 'Forbidden: Invalid role or shop_id' }); } } catch (err) { res.status(500).json({ error: err.message }); } });
 app.get('/api/shops/:shopId/inventory', isAuthenticated, async (req, res) => { const { shopId } = req.params;
  if (req.session.user.role === 'shop_user' && parseInt(shopId) !== req.session.user.shop_id) {
  return res.status(403).json({ error: "Forbidden: You can only view your own shop's inventory" });
@@ -245,8 +246,8 @@ app.post('/api/cancel-usage', isAuthenticated, async (req, res) => { const { usa
 });
 
 // --- Admin APIs ---
-app.get('/api/admin/shops', isAuthenticated, isAdmin, async (req, res) => { try { const rows = await dbAll("SELECT id, name FROM shops ORDER BY id"); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.post('/api/admin/shops', isAuthenticated, isAdmin, async (req, res) => { const { name } = req.body;
+app.get('/api/admin/shops', isAuthenticated, isAdminOrSupplier, async (req, res) => { try { const rows = await dbAll("SELECT id, name FROM shops ORDER BY id"); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
+app.post('/api/admin/shops', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { name } = req.body;
  if (!name) {
  return res.status(400).json({ error: 'Shop name is required' });
  }
@@ -257,7 +258,7 @@ app.post('/api/admin/shops', isAuthenticated, isAdmin, async (req, res) => { con
  res.status(500).json({ error: err.message });
  }
 });
-app.put('/api/admin/shops/:id', isAuthenticated, isAdmin, async (req, res) => { const { id } = req.params;
+app.put('/api/admin/shops/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
  const { name } = req.body;
  if (!name) {
  return res.status(400).json({ error: 'Shop name is required' });
@@ -269,7 +270,7 @@ app.put('/api/admin/shops/:id', isAuthenticated, isAdmin, async (req, res) => { 
  res.status(500).json({ error: err.message });
  }
 });
-app.delete('/api/admin/shops/:id', isAuthenticated, isAdmin, async (req, res) => { const { id } = req.params;
+app.delete('/api/admin/shops/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
  try {
  const userCount = await dbGet("SELECT COUNT(*) AS count FROM users WHERE shop_id = ?", [id]);
  if (userCount.count > 0) {
@@ -289,8 +290,8 @@ app.delete('/api/admin/shops/:id', isAuthenticated, isAdmin, async (req, res) =>
  }
 });
 
-app.get('/api/admin/categories', isAuthenticated, isAdmin, async (req, res) => { try { const rows = await dbAll("SELECT id, name FROM categories ORDER BY id"); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.post('/api/admin/categories', isAuthenticated, isAdmin, async (req, res) => { const { name } = req.body;
+app.get('/api/admin/categories', isAuthenticated, isAdminOrSupplier, async (req, res) => { try { const rows = await dbAll("SELECT id, name FROM categories ORDER BY id"); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
+app.post('/api/admin/categories', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { name } = req.body;
  if (!name) {
  return res.status(400).json({ error: 'Category name is required' });
  }
@@ -301,7 +302,7 @@ app.post('/api/admin/categories', isAuthenticated, isAdmin, async (req, res) => 
  res.status(500).json({ error: err.message });
  }
 });
-app.put('/api/admin/categories/:id', isAuthenticated, isAdmin, async (req, res) => { const { id } = req.params;
+app.put('/api/admin/categories/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
  const { name } = req.body;
  if (!name) {
  return res.status(400).json({ error: 'Category name is required' });
@@ -313,7 +314,7 @@ app.put('/api/admin/categories/:id', isAuthenticated, isAdmin, async (req, res) 
  res.status(500).json({ error: err.message });
  }
 });
-app.delete('/api/admin/categories/:id', isAuthenticated, isAdmin, async (req, res) => { const { id } = req.params;
+app.delete('/api/admin/categories/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
  try {
  const partCount = await dbGet("SELECT COUNT(*) AS count FROM parts WHERE category_id = ?", [id]);
  if (partCount.count > 0) {
@@ -329,9 +330,9 @@ app.delete('/api/admin/categories/:id', isAuthenticated, isAdmin, async (req, re
  }
 });
 
-app.get('/api/admin/parts', isAuthenticated, isAdmin, async (req, res) => { const sql = `SELECT p.id, p.part_number, p.part_name, p.category_id, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.id`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
+app.get('/api/admin/parts', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT p.id, p.part_number, p.part_name, p.category_id, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.id`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
 
-app.get('/api/admin/parts/uncategorized', isAuthenticated, isAdmin, async (req, res) => {
+app.get('/api/admin/parts/uncategorized', isAuthenticated, isAdminOrSupplier, async (req, res) => {
     const sql = `SELECT id, part_number, part_name FROM parts WHERE category_id IS NULL ORDER BY id`;
     try {
         const rows = await dbAll(sql);
@@ -340,7 +341,7 @@ app.get('/api/admin/parts/uncategorized', isAuthenticated, isAdmin, async (req, 
         res.status(500).json({ error: err.message });
     }
 });
-app.post('/api/admin/parts', isAuthenticated, isAdmin, async (req, res) => { const { part_number, part_name, category_id } = req.body;
+app.post('/api/admin/parts', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { part_number, part_name, category_id } = req.body;
  if (!part_number || !part_name) {
  return res.status(400).json({ error: 'Part number and name are required' });
  }
@@ -351,7 +352,7 @@ app.post('/api/admin/parts', isAuthenticated, isAdmin, async (req, res) => { con
  res.status(500).json({ error: err.message });
  }
 });
-app.put('/api/admin/parts/:id', isAuthenticated, isAdmin, async (req, res) => { const { id } = req.params;
+app.put('/api/admin/parts/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
  const { part_number, part_name, category_id } = req.body;
  if (!part_number || !part_name) {
  return res.status(400).json({ error: 'Part number and name are required' });
@@ -364,7 +365,7 @@ app.put('/api/admin/parts/:id', isAuthenticated, isAdmin, async (req, res) => { 
  }
 });
 
-app.put('/api/admin/parts/:id/category', isAuthenticated, isAdmin, async (req, res) => {
+app.put('/api/admin/parts/:id/category', isAuthenticated, isAdminOrSupplier, async (req, res) => {
     const { id } = req.params;
     const { categoryId } = req.body;
     try {
@@ -374,7 +375,7 @@ app.put('/api/admin/parts/:id/category', isAuthenticated, isAdmin, async (req, r
         res.status(500).json({ error: err.message });
     }
 });
-app.delete('/api/admin/parts/:id', isAuthenticated, isAdmin, async (req, res) => { const { id } = req.params;
+app.delete('/api/admin/parts/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
  try {
  const invCount = await dbGet("SELECT COUNT(*) AS count FROM inventories WHERE part_id = ?", [id]);
  if (invCount.count > 0) {
@@ -390,7 +391,7 @@ app.delete('/api/admin/parts/:id', isAuthenticated, isAdmin, async (req, res) =>
  }
 });
 
-app.delete('/api/admin/parts', isAuthenticated, isAdmin, async (req, res) => {
+app.delete('/api/admin/parts', isAuthenticated, isAdminOrSupplier, async (req, res) => {
     const { partIds } = req.body;
     if (!partIds || !Array.isArray(partIds) || partIds.length === 0) {
         return res.status(400).json({ error: 'partIds array is required.' });
@@ -418,12 +419,12 @@ app.delete('/api/admin/parts', isAuthenticated, isAdmin, async (req, res) => {
     }
 });
 
-app.get('/api/admin/parts/csv', isAuthenticated, isAdmin, async (req, res) => { const sql = `SELECT p.id, p.part_number, p.part_name, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.id`; try { const rows = await dbAll(sql); if (!rows || rows.length === 0) { return res.status(404).send('No parts to export.'); } const header = 'ID,Part Number,Part Name,Category Name\n'; const csvRows = rows.map(row => `"${row.id}","${row.part_number}","${row.part_name}","${row.category_name || ''}"`);  const csvString = header + csvRows.join('\n');
+app.get('/api/admin/parts/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT p.id, p.part_number, p.part_name, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.id`; try { const rows = await dbAll(sql); if (!rows || rows.length === 0) { return res.status(404).send('No parts to export.'); } const header = 'ID,Part Number,Part Name,Category Name\n'; const csvRows = rows.map(row => `"${row.id}","${row.part_number}","${row.part_name}","${row.category_name || ''}"`);  const csvString = header + csvRows.join('\n');
         const bom = '\uFEFF';
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="parts-master.csv"');
         res.status(200).send(Buffer.from(bom + csvString, 'utf8')); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.post('/api/admin/parts/csv', isAuthenticated, isAdmin, upload.single('csvFile'), async (req, res) => {
+app.post('/api/admin/parts/csv', isAuthenticated, isAdminOrSupplier, upload.single('csvFile'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'CSVファイルがアップロードされていません。' });
     }
@@ -527,7 +528,7 @@ app.post('/api/admin/users', isAuthenticated, isAdmin, async (req, res) => { con
  }
  try {
  const hash = await bcrypt.hash(password, saltRounds);
- const finalShopId = role === 'admin' ? null : shop_id;
+ const finalShopId = (role === 'admin' || role === 'supplier') ? null : shop_id;
  const result = await dbRun("INSERT INTO users (username, password_hash, role, shop_id) VALUES (?, ?, ?, ?)", [username, hash, role, finalShopId]);
  res.json({ id: result.lastID, username, role, shop_id: finalShopId });
  } catch (err) {
@@ -543,12 +544,11 @@ app.put('/api/admin/users/:id', isAuthenticated, isAdmin, async (req, res) => { 
  return res.status(400).json({ error: 'Shop ID is required for shop users' });
  }
  try {
+ const finalShopId = (role === 'admin' || role === 'supplier') ? null : shop_id;
  if (password) {
  const hash = await bcrypt.hash(password, saltRounds);
- const finalShopId = role === 'admin' ? null : shop_id;
  await dbRun("UPDATE users SET username = ?, password_hash = ?, role = ?, shop_id = ? WHERE id = ?", [username, hash, role, finalShopId, id]);
  } else {
- const finalShopId = role === 'admin' ? null : shop_id;
  await dbRun("UPDATE users SET username = ?, role = ?, shop_id = ? WHERE id = ?", [username, role, finalShopId, id]);
  }
  res.json({ message: 'User updated successfully' });
@@ -635,9 +635,9 @@ app.delete('/api/admin/employees/:id', isAuthenticated, isAdmin, async (req, res
 });
 
 
-app.get('/api/admin/inventory/locations', isAuthenticated, isAdmin, async (req, res) => { try { const rows = await dbAll("SELECT DISTINCT location_info FROM inventories WHERE location_info IS NOT NULL AND location_info != '' ORDER BY location_info"); res.json(rows.map(r => r.location_info)); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.get('/api/admin/all-inventory', isAuthenticated, isAdmin, async (req, res) => { const sql = `SELECT i.part_id, i.shop_id, s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, i.location_info FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id ORDER BY s.name, p.part_name`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.post('/api/admin/inventory', isAuthenticated, isAdmin, async (req, res) => { const { shop_id, part_id, quantity, min_reorder_level, location_info } = req.body;
+app.get('/api/admin/inventory/locations', isAuthenticated, isAdminOrSupplier, async (req, res) => { try { const rows = await dbAll("SELECT DISTINCT location_info FROM inventories WHERE location_info IS NOT NULL AND location_info != '' ORDER BY location_info"); res.json(rows.map(r => r.location_info)); } catch (err) { res.status(500).json({ error: err.message }); } });
+app.get('/api/admin/all-inventory', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT i.part_id, i.shop_id, s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, i.location_info FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id ORDER BY s.name, p.part_name`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
+app.post('/api/admin/inventory', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { shop_id, part_id, quantity, min_reorder_level, location_info } = req.body;
  if (!shop_id || !part_id || quantity === undefined || min_reorder_level === undefined) {
  return res.status(400).json({ error: 'Shop, part, quantity, and min_reorder_level are required' });
  }
@@ -650,7 +650,7 @@ app.post('/api/admin/inventory', isAuthenticated, isAdmin, async (req, res) => {
  }
 });
 
-app.delete('/api/admin/inventory', isAuthenticated, isAdmin, async (req, res) => {
+app.delete('/api/admin/inventory', isAuthenticated, isAdminOrSupplier, async (req, res) => {
     const { shop_id, part_id } = req.body;
     if (!shop_id || !part_id) {
         return res.status(400).json({ error: 'shop_id and part_id are required' });
@@ -665,7 +665,7 @@ app.delete('/api/admin/inventory', isAuthenticated, isAdmin, async (req, res) =>
         res.status(500).json({ error: err.message });
     }
 });
-app.post('/api/admin/inventory/csv', isAuthenticated, isAdmin, async (req, res) => { const { csvData } = req.body;
+app.post('/api/admin/inventory/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { csvData } = req.body;
  if (!csvData) {
  return res.status(400).json({ error: 'CSV data is missing.' });
  }
@@ -710,7 +710,7 @@ app.post('/api/admin/inventory/csv', isAuthenticated, isAdmin, async (req, res) 
  res.status(500).json({ error: 'An unexpected error occurred.', details: err.message });
  }
 });
-app.post('/api/admin/inventory/stocktake', isAuthenticated, isAdmin, async (req, res) => { const { shop_id, stocktakeData } = req.body;
+app.post('/api/admin/inventory/stocktake', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { shop_id, stocktakeData } = req.body;
  const user_id = req.session.user.id;
  if (!shop_id || !Array.isArray(stocktakeData)) {
  return res.status(400).json({ error: 'Shop ID and stocktake data are required.' });
@@ -742,7 +742,7 @@ app.post('/api/admin/inventory/stocktake', isAuthenticated, isAdmin, async (req,
  }
 });
 
-app.post('/api/admin/inventory/replenish', isAuthenticated, isAdmin, async (req, res) => {
+app.post('/api/admin/inventory/replenish', isAuthenticated, isAdminOrSupplier, async (req, res) => {
     const { shop_id, part_id, quantity_added } = req.body;
     const user_id = req.session.user.id;
 
@@ -787,7 +787,7 @@ app.post('/api/admin/inventory/replenish', isAuthenticated, isAdmin, async (req,
 });
 
 
-app.get('/api/admin/all-usage-history', isAuthenticated, isAdmin, async (req, res) => { const { startDate, endDate, shopId, partId } = req.query;
+app.get('/api/admin/all-usage-history', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { startDate, endDate, shopId, partId } = req.query;
  let sql = `SELECT 
                 s.name AS shop_name, 
                 p.part_number, 
@@ -835,8 +835,8 @@ app.get('/api/admin/all-usage-history', isAuthenticated, isAdmin, async (req, re
  res.status(500).json({ error: err.message });
  }
 });
-app.get('/api/admin/reorder-list', isAuthenticated, isAdmin, async (req, res) => { const sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id WHERE i.quantity < i.min_reorder_level ORDER BY s.name, shortage DESC, p.part_name`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.get('/api/admin/reorder-list/csv', isAuthenticated, isAdmin, async (req, res) => { const sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id WHERE i.quantity < i.min_reorder_level ORDER BY s.name, shortage DESC, p.part_name`; try { const rows = await dbAll(sql); if (!rows || rows.length === 0) { return res.status(404).send('No items to export.'); } const header = '工場名,品番,部品名,現在庫数,最低発注レベル,不足数\n'; const csvRows = rows.map(row => `"${row.shop_name}","${row.part_number}","${row.part_name}",${row.quantity},${row.min_reorder_level},${row.shortage}`); const csvString = header + csvRows.join('\n');
+app.get('/api/admin/reorder-list', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id WHERE i.quantity < i.min_reorder_level ORDER BY s.name, shortage DESC, p.part_name`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
+app.get('/api/admin/reorder-list/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id WHERE i.quantity < i.min_reorder_level ORDER BY s.name, shortage DESC, p.part_name`; try { const rows = await dbAll(sql); if (!rows || rows.length === 0) { return res.status(404).send('No items to export.'); } const header = '工場名,品番,部品名,現在庫数,最低発注レベル,不足数\n'; const csvRows = rows.map(row => `"${row.shop_name}","${row.part_number}","${row.part_name}",${row.quantity},${row.min_reorder_level},${row.shortage}`); const csvString = header + csvRows.join('\n');
         const bom = '\uFEFF';
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="reorder-list.csv"');

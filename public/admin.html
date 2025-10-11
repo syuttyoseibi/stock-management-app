@@ -193,8 +193,8 @@
                             <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#master-parts-tab">部品</a></li>
                             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#master-categories-tab">カテゴリー</a></li>
                             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#master-shops-tab">工場</a></li>
-                            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#master-employees-tab">従業員</a></li>
-                            <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#master-users-tab">ユーザー</a></li>
+                            <li class="nav-item" id="master-employees-nav"><a class="nav-link" data-bs-toggle="tab" href="#master-employees-tab">従業員</a></li>
+                            <li class="nav-item" id="master-users-nav"><a class="nav-link" data-bs-toggle="tab" href="#master-users-tab">ユーザー</a></li>
                             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#master-uncategorized-tab">未分類部品</a></li>
                         </ul>
                     </div>
@@ -474,8 +474,14 @@
                 <div class="modal-header"><h5 class="modal-title">新しいユーザーを追加</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                 <div class="modal-body">
                     <div class="mb-3"><label for="new-username" class="form-label">ユーザー名:</label><input type="text" id="new-username" class="form-control" placeholder="例: shopuser1"></div>
-                    <div class="mb-3"><label for="new-password" class="form-label">パスワード:</label><input type="password" id="new-password" class="form-control" placeholder="パスワード"></div>
-                    <div class="mb-3"><label for="new-user-role" class="form-label">ロール:</label><select id="new-user-role" class="form-select" onchange="toggleShopSelectForUser('new')"><option value="admin">管理者</option><option value="shop_user">整備工場ユーザー</option></select></div>
+                    <div class="mb-3">
+                        <label for="new-password" class="form-label">パスワード:</label>
+                        <div class="input-group">
+                            <input type="password" id="new-password" class="form-control" placeholder="パスワード">
+                            <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('new-password', this)"><i class="bi bi-eye-slash"></i></button>
+                        </div>
+                    </div>
+                    <div class="mb-3"><label for="new-user-role" class="form-label">ロール:</label><select id="new-user-role" class="form-select" onchange="toggleShopSelectForUser('new')"><option value="admin">管理者</option><option value="supplier">部品商</option><option value="shop_user">整備工場ユーザー</option></select></div>
                     <div class="mb-3" id="new-user-shop-group" style="display: none;"><label for="new-user-shop-id" class="form-label">所属工場:</label><select id="new-user-shop-id" class="form-select"></select></div>
                     <p id="add-user-message"></p>
                 </div>
@@ -491,8 +497,14 @@
                 <div class="modal-body">
                     <input type="hidden" id="edit-user-id">
                     <div class="mb-3"><label for="edit-username" class="form-label">ユーザー名:</label><input type="text" id="edit-username" class="form-control"></div>
-                    <div class="mb-3"><label for="edit-password" class="form-label">新しいパスワード (変更する場合のみ):</label><input type="password" id="edit-password" class="form-control" placeholder="変更しない場合は空のまま"></div>
-                    <div class="mb-3"><label for="edit-user-role" class="form-label">ロール:</label><select id="edit-user-role" class="form-select" onchange="toggleShopSelectForUser('edit')"><option value="admin">管理者</option><option value="shop_user">整備工場ユーザー</option></select></div>
+                    <div class="mb-3">
+                        <label for="edit-password" class="form-label">新しいパスワード (変更する場合のみ):</label>
+                        <div class="input-group">
+                            <input type="password" id="edit-password" class="form-control" placeholder="変更しない場合は空のまま">
+                            <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('edit-password', this)"><i class="bi bi-eye-slash"></i></button>
+                        </div>
+                    </div>
+                    <div class="mb-3"><label for="edit-user-role" class="form-label">ロール:</label><select id="edit-user-role" class="form-select" onchange="toggleShopSelectForUser('edit')"><option value="admin">管理者</option><option value="supplier">部品商</option><option value="shop_user">整備工場ユーザー</option></select></div>
                     <div class="mb-3" id="edit-user-shop-group" style="display: none;"><label for="edit-user-shop-id" class="form-label">所属工場:</label><select id="edit-user-shop-id" class="form-select"></select></div>
                     <p id="edit-user-message"></p>
                 </div>
@@ -526,17 +538,29 @@
             try {
                 const response = await fetch('/api/auth/status');
                 const data = await response.json();
-                if (data.loggedIn && data.user.role === 'admin') {
+                if (data.loggedIn && (data.user.role === 'admin' || data.user.role === 'supplier')) {
                     currentUser = data.user;
                     document.getElementById('username-display').textContent = data.user.username;
+                    setupUIVisibility();
                     loadAllAdminData();
                 } else {
-                    alert('管理者権限がありません。ログインページに戻ります。');
+                    alert('アクセス権限がありません。ログインページに戻ります。');
                     window.location.href = '/login.html';
                 }
             } catch (error) {
                 alert('認証状態の確認中にエラーが発生しました。');
                 console.error('Auth check error:', error);
+            }
+        }
+
+        function setupUIVisibility() {
+            if (currentUser.role === 'supplier') {
+                // 部品商の場合、ユーザー管理と従業員管理のタブを非表示にする
+                document.getElementById('master-users-nav').style.display = 'none';
+                document.getElementById('master-employees-nav').style.display = 'none';
+                // 対応するタブコンテンツも非表示にする
+                document.getElementById('master-users-tab').classList.remove('fade');
+                document.getElementById('master-employees-tab').classList.remove('fade');
             }
         }
 
@@ -559,8 +583,10 @@
             await loadShops();
             await loadCategories();
             await loadParts();
-            await loadUsers();
-            await loadEmployees();
+            if (currentUser.role === 'admin') {
+                await loadUsers();
+                await loadEmployees();
+            }
             await loadAllInventory();
             await loadReorderList();
             await loadUsageHistory();
@@ -1302,6 +1328,20 @@
         }
 
         // --- Helper ---
+        function togglePasswordVisibility(inputId, button) {
+            const passwordInput = document.getElementById(inputId);
+            const icon = button.querySelector('i');
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                icon.classList.remove('bi-eye-slash');
+                icon.classList.add('bi-eye');
+            } else {
+                passwordInput.type = 'password';
+                icon.classList.remove('bi-eye');
+                icon.classList.add('bi-eye-slash');
+            }
+        }
+
         function showMessage(elementId, message, type = 'info') {
             const element = document.getElementById(elementId);
             if (element) {
