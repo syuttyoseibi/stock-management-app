@@ -66,6 +66,7 @@
 
                 if (response.ok) {
                     // ログイン成功
+                    alert('サーバーからの応答: ' + JSON.stringify(data)); // デバッグ用アラート
                     console.log('Login successful:', data.user);
                     // ユーザーのロールに基づいてリダイレクト
                     if (data.user.role === 'admin' || data.user.role === 'supplier') {

@@ -31,6 +31,11 @@ const PORT = 3000;
 const saltRounds = 10;
 
 app.use(express.json());
+// ルートURLへのアクセス時にlogin.htmlを直接表示
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
 app.use(express.static('public'));
 app.use(cookieParser());
 if (process.env.NODE_ENV === 'production') {
