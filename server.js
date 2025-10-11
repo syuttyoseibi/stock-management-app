@@ -886,7 +886,7 @@ app.get('/api/admin/all-usage-history/csv', isAuthenticated, isAdminOrSupplier, 
                 status,
                 row.cancellation_reason || ''
             ];
-            return values.map(v => `"${String(v || '').replace(/"/g, '''''''')}"`).join(',');
+            return values.map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(',');
         });
 
         const csvString = header + csvRows.join('\n');
