@@ -976,6 +976,76 @@ app.get('/api/admin/replenishment-history/csv', isAuthenticated, isAdminOrSuppli
     }
 });
 
+app.post('/api/admin/inventory-audit/run', isAuthenticated, isAdmin, async (req, res) => {
+    try {
+        const allCurrentInventory = await dbAll(`
+            SELECT i.part_id, i.shop_id, i.quantity, p.part_name, s.name as shop_name
+            FROM inventories i
+            JOIN parts p ON i.part_id = p.id
+            JOIN shops s ON i.shop_id = s.id
+        `);
+
+        const auditResults = await Promise.all(allCurrentInventory.map(async (inv) => {
+            const { part_id, shop_id, quantity, part_name, shop_name } = inv;
+
+            const lastStocktake = await dbGet(`
+                SELECT stocktake_time, quantity_after 
+                FROM stocktake_history
+                WHERE part_id = ? AND shop_id = ?
+                ORDER BY stocktake_time DESC
+                LIMIT 1
+            `, [part_id, shop_id]);
+
+            if (!lastStocktake) {
+                return {
+                    part_id, shop_id, part_name, shop_name,
+                    status: 'no_basepoint', // 監査基準なし
+                    message: 'この品目は棚卸し履歴がないため監査できません。'
+                };
+            }
+
+            const baseTime = lastStocktake.stocktake_time;
+            const baseQuantity = lastStocktake.quantity_after;
+
+            const replenishments = await dbGet(
+                `SELECT SUM(quantity_added) as total FROM replenishment_history WHERE part_id = ? AND shop_id = ? AND replenished_at > ?`,
+                [part_id, shop_id, baseTime]
+            );
+            const totalReplenished = replenishments?.total || 0;
+
+            const usages = await dbGet(
+                `SELECT COUNT(*) as total FROM usage_history WHERE part_id = ? AND shop_id = ? AND status = 'active' AND usage_time > ?`,
+                [part_id, shop_id, baseTime]
+            );
+            const totalUsed = usages?.total || 0;
+
+            const cancellations = await dbGet(
+                `SELECT COUNT(*) as total FROM usage_history WHERE part_id = ? AND shop_id = ? AND status = 'cancelled' AND usage_time > ?`,
+                [part_id, shop_id, baseTime]
+            );
+            const totalCancelled = cancellations?.total || 0;
+
+            const expectedQuantity = baseQuantity + totalReplenished - totalUsed + totalCancelled;
+            const difference = quantity - expectedQuantity;
+
+            return {
+                part_id, shop_id, part_name, shop_name,
+                status: 'audited',
+                last_audit_point: baseTime,
+                expected_quantity: expectedQuantity,
+                actual_quantity: quantity,
+                difference: difference
+            };
+        }));
+
+        res.json(auditResults);
+
+    } catch (err) {
+        console.error("Inventory audit failed:", err);
+        res.status(500).json({ error: '在庫監査の実行中にエラーが発生しました。', details: err.message });
+    }
+});
+
 // --- Server Start ---
 const startServer = async () => {
     await initializeDatabase();

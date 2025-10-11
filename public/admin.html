@@ -304,6 +304,7 @@
                             <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#report-reorder-tab">発注リスト</a></li>
                             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#report-usage-tab">使用履歴</a></li>
                             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#report-replenishment-history-tab">補充履歴</a></li>
+                            <li class="nav-item" id="report-audit-nav"><a class="nav-link" data-bs-toggle="tab" href="#report-audit-tab">在庫監査</a></li>
                         </ul>
                     </div>
                     <div class="card-body tab-content">
@@ -359,6 +360,35 @@
                                 <table id="replenishment-history-table" class="table table-striped table-hover">
                                     <thead><tr><th>補充日時</th><th>工場名</th><th>品番</th><th>部品名</th><th>補充数</th><th>担当者</th></tr></thead>
                                     <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <!-- 在庫監査 -->
+                        <div class="tab-pane fade" id="report-audit-tab">
+                            <h4>在庫監査レポート</h4>
+                            <p>各品目の最終棚卸し時点を基準として、その後の入出庫（補充・使用）履歴から算出した理論在庫と、現在の実在庫を比較します。</p>
+                            <div class="mb-3">
+                                <button class="btn btn-primary" id="run-audit-btn" onclick="runInventoryAudit()">
+                                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                                    監査を実行
+                                </button>
+                            </div>
+                            <div class="table-responsive">
+                                <table id="audit-results-table" class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>工場</th>
+                                            <th>部品</th>
+                                            <th>最終監査日時</th>
+                                            <th>理論在庫</th>
+                                            <th>実在庫</th>
+                                            <th>差異</th>
+                                            <th>ステータス</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td colspan="7" class="text-center">監査を実行してください。</td></tr>
+                                    </tbody>
                                 </table>
                             </div>
                         </div>
@@ -605,13 +635,14 @@
         }
 
         function setupUIVisibility() {
-            if (currentUser.role === 'supplier') {
-                // 部品商の場合、ユーザー管理と従業員管理のタブを非表示にする
+            if (currentUser.role !== 'admin') {
                 document.getElementById('master-users-nav').style.display = 'none';
                 document.getElementById('master-employees-nav').style.display = 'none';
-                // 対応するタブコンテンツも非表示にする
+                document.getElementById('report-audit-nav').style.display = 'none';
+                
                 document.getElementById('master-users-tab').classList.remove('fade');
                 document.getElementById('master-employees-tab').classList.remove('fade');
+                document.getElementById('report-audit-tab').classList.remove('fade');
             }
         }
 
@@ -621,8 +652,6 @@
         }
 
         function showTab(tabId) {
-            // This function is just for ensuring the correct main tab is shown,
-            // Bootstrap handles the actual tab switching.
             const someTabTriggerEl = document.querySelector(`a[href="#${tabId}"]`)
             if(someTabTriggerEl) {
                 const tab = new bootstrap.Tab(someTabTriggerEl);
@@ -1512,6 +1541,59 @@
             document.getElementById('rh-filter-shop-id').value = '';
             document.getElementById('rh-filter-part-id').value = '';
             loadReplenishmentHistory();
+        }
+
+        async function runInventoryAudit() {
+            const btn = document.getElementById('run-audit-btn');
+            const spinner = btn.querySelector('.spinner-border');
+            const tableBody = document.querySelector('#audit-results-table tbody');
+
+            btn.disabled = true;
+            spinner.classList.remove('d-none');
+            tableBody.innerHTML = '<tr><td colspan="7" class="text-center">監査を実行中... 全ての在庫履歴を計算しています...</td></tr>';
+
+            try {
+                const response = await fetch('/api/admin/inventory-audit/run', { method: 'POST' });
+                const results = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(results.error || '監査の実行に失敗しました。');
+                }
+
+                tableBody.innerHTML = '';
+                if (results.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="7" class="text-center">監査対象のデータがありません。</td></tr>';
+                    return;
+                }
+
+                results.forEach(item => {
+                    const row = tableBody.insertRow();
+                    if (item.status === 'no_basepoint') {
+                        row.innerHTML = `
+                            <td>${item.shop_name}</td>
+                            <td>${item.part_name}</td>
+                            <td colspan="4" class="text-muted">${item.message}</td>
+                            <td><span class="badge bg-secondary">監査不可</span></td>`;
+                    } else {
+                        const isOk = item.difference === 0;
+                        row.classList.add(isOk ? '' : 'table-danger');
+                        row.innerHTML = `
+                            <td>${item.shop_name}</td>
+                            <td>${item.part_name}</td>
+                            <td>${new Date(item.last_audit_point).toLocaleString()}</td>
+                            <td>${item.expected_quantity}</td>
+                            <td>${item.actual_quantity}</td>
+                            <td class="fw-bold">${item.difference}</td>
+                            <td><span class="badge ${isOk ? 'bg-success' : 'bg-danger'}">${isOk ? 'OK' : '差異あり'}</span></td>`;
+                    }
+                });
+
+            } catch (error) {
+                tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">エラー: ${error.message}</td></tr>`;
+            } finally {
+                btn.disabled = false;
+                spinner.classList.add('d-none');
+            }
         }
 
 
