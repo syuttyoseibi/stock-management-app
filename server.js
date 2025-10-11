@@ -905,6 +905,77 @@ app.get('/api/admin/reorder-list/csv', isAuthenticated, isAdminOrSupplier, async
         res.setHeader('Content-Disposition', 'attachment; filename="reorder-list.csv"');
         res.status(200).send(Buffer.from(bom + csvString, 'utf8')); } catch (err) { res.status(500).json({ error: err.message }); } });
 
+// --- Replenishment History ---
+const getReplenishmentHistoryQuery = (queryParams) => {
+    const { startDate, endDate, shopId, partId } = queryParams;
+    let sql = `SELECT 
+                    rh.id, 
+                    s.name AS shop_name, 
+                    p.part_number, 
+                    p.part_name, 
+                    u.username AS user_name, 
+                    rh.replenished_at, 
+                    rh.quantity_added
+                FROM 
+                    replenishment_history rh
+                LEFT JOIN 
+                    shops s ON rh.shop_id = s.id 
+                LEFT JOIN 
+                    parts p ON rh.part_id = p.id 
+                LEFT JOIN 
+                    users u ON rh.user_id = u.id`;
+    const whereClauses = [];
+    const params = [];
+    if (startDate) { whereClauses.push("rh.replenished_at >= ?"); params.push(startDate); }
+    if (endDate) { whereClauses.push("rh.replenished_at <= ?"); params.push(endDate + ' 23:59:59'); }
+    if (shopId) { whereClauses.push("rh.shop_id = ?"); params.push(shopId); }
+    if (partId) { whereClauses.push("rh.part_id = ?"); params.push(partId); }
+    if (whereClauses.length > 0) { sql += " WHERE " + whereClauses.join(" AND "); }
+    sql += " ORDER BY rh.replenished_at DESC";
+    return { sql, params };
+};
+
+app.get('/api/admin/replenishment-history', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    try {
+        const { sql, params } = getReplenishmentHistoryQuery(req.query);
+        const rows = await dbAll(sql, params);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/admin/replenishment-history/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    try {
+        const { sql, params } = getReplenishmentHistoryQuery(req.query);
+        const rows = await dbAll(sql, params);
+        if (!rows || rows.length === 0) {
+            return res.status(404).send('No replenishment history to export for the selected criteria.');
+        }
+
+        const header = '補充日時,工場名,品番,部品名,補充数,担当者\n';
+        const csvRows = rows.map(row => {
+            const values = [
+                row.replenished_at,
+                row.shop_name,
+                row.part_number,
+                row.part_name,
+                row.quantity_added,
+                row.user_name
+            ];
+            return values.map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(',');
+        });
+
+        const csvString = header + csvRows.join('\n');
+        const bom = '\uFEFF'; // BOM for UTF-8
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="replenishment-history.csv"');
+        res.status(200).send(Buffer.from(bom + csvString, 'utf8'));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- Server Start ---
 const startServer = async () => {
     await initializeDatabase();
