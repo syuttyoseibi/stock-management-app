@@ -44,7 +44,7 @@
             display: flex !important;
         }
         .details-section { display: none; }
-        .details-section h6 { cursor: pointer; color: #0d6efd; }
+        .clickable-badge { cursor: pointer; }
     </style>
 </head>
 <body>
@@ -1570,8 +1570,8 @@
                     <p>分析期間: ${new Date(summary.base_time).toLocaleString()} 〜 現在</p>
                     <ul class="list-group mb-3">
                         <li class="list-group-item d-flex justify-content-between align-items-center">[A] 期間開始時の在庫 <span class="badge bg-secondary rounded-pill">${summary.base_quantity}</span></li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center">[B] 期間中の補充記録 <h6 class="mb-0"><span class="badge bg-primary rounded-pill" onclick="toggleDetails('replenishment-details')">+${summary.total_replenished}</span></h6></li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center">[C] 期間中の使用記録 <h6 class="mb-0"><span class="badge bg-warning text-dark rounded-pill" onclick="toggleDetails('usage-details')">-${summary.total_used} (取消: +${summary.total_cancelled})</span></h6></li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">[B] 期間中の補充記録 <h6 class="mb-0"><span class="badge bg-primary rounded-pill clickable-badge" onclick="toggleDetails('replenishment-details')" title="クリックして詳細を表示">+${summary.total_replenished} <i class="bi bi-list-ul"></i></span></h6></li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center">[C] 期間中の使用記録 <h6 class="mb-0"><span class="badge bg-warning text-dark rounded-pill clickable-badge" onclick="toggleDetails('usage-details')" title="クリックして詳細を表示">-${summary.total_used} (取消: +${summary.total_cancelled}) <i class="bi bi-list-ul"></i></span></h6></li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">[D] 記録からの理論在庫 (A+B-C) <span class="badge bg-secondary rounded-pill">${summary.calculated_stock}</span></li>
                         <li class="list-group-item d-flex justify-content-between align-items-center">[E] 今回のシステム在庫 <span class="badge bg-secondary rounded-pill">${systemStock}</span></li>
                         <li class="list-group-item d-flex justify-content-between align-items-center fw-bold">システム内部差異 (E-D) <span class="badge bg-${internalDifference === 0 ? 'success' : 'danger'} rounded-pill">${internalDifference}</span></li>
@@ -1586,10 +1586,12 @@
                     analysisHTML += `<p class="alert alert-success">システム内部の記録は整合性が取れています。</p>`;
                 }
 
-                if (physicalDifference !== 0) {
-                    analysisHTML += `<p class="alert alert-danger"><strong>問題:</strong> 物理的な在庫に差異(${physicalDifference})が確認されました。システム内部の記録は正常なため、記録されていない在庫の移動（使用、紛失、破損など）があった可能性が高いです。</p>`;
+                if (physicalDifference > 0) {
+                    analysisHTML += `<p class="alert alert-info"><strong>情報:</strong> 物理的な在庫が、システムの記録より ${physicalDifference} 個多くなっています。記録されていない補充（返品など）があった可能性があります。</p>`;
+                } else if (physicalDifference < 0) {
+                    analysisHTML += `<p class="alert alert-danger"><strong>問題:</strong> 物理的な在庫が、システムの記録より ${Math.abs(physicalDifference)} 個少なくなっています。システム内部の記録は正常なため、記録されていない在庫の移動（使用、紛失、破損など）があった可能性が高いです。</p>`;
                 } else {
-                    analysisHTML += `<p class="alert alert-success">物理的な在庫とシステム上の在庫に差異はありませんでした。</p>`;
+                     analysisHTML += `<p class="alert alert-success">物理的な在庫とシステム上の在庫に差異はありませんでした。</p>`;
                 }
 
                 analysisHTML += `
