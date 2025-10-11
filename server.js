@@ -33,11 +33,19 @@ const saltRounds = 10;
 app.use(express.json());
 app.use(express.static('public'));
 app.use(cookieParser());
+if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1); // Nginx, ngrokなどのリバースプロキシを信頼する
+}
+
 app.use(session({
     secret: 'a-very-secret-key-that-should-be-in-env',
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: false }
+    cookie: { 
+        secure: process.env.NODE_ENV === 'production', // 本番環境ではhttpsのみ
+        httpOnly: true, // クライアントサイドJSからのアクセスを禁止
+        sameSite: 'lax' // CSRF対策
+    }
 }));
 
 const dbRun = (sql, params = []) => new Promise((resolve, reject) => { db.run(sql, params, function(err) { if (err) reject(err); else resolve(this); }); });
