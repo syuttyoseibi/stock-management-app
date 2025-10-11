@@ -333,9 +333,12 @@ app.delete('/api/admin/categories/:id', isAuthenticated, isAdminOrSupplier, asyn
 app.get('/api/admin/parts', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT p.id, p.part_number, p.part_name, p.category_id, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.id`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
 
 app.get('/api/admin/parts/uncategorized', isAuthenticated, isAdminOrSupplier, async (req, res) => {
-    const sql = `SELECT id, part_number, part_name FROM parts WHERE category_id IS NULL ORDER BY id`;
     try {
-        const rows = await dbAll(sql);
+        const uncategorizedCategory = await dbGet("SELECT id FROM categories WHERE name = ?", ['未分類']);
+        const uncategorizedId = uncategorizedCategory ? uncategorizedCategory.id : -1; // Use a non-existent ID if not found
+
+        const sql = `SELECT id, part_number, part_name FROM parts WHERE category_id IS NULL OR category_id = ? ORDER BY id`;
+        const rows = await dbAll(sql, [uncategorizedId]);
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -834,6 +837,66 @@ app.get('/api/admin/all-usage-history', isAuthenticated, isAdminOrSupplier, asyn
  } catch (err) {
  res.status(500).json({ error: err.message });
  }
+});
+
+app.get('/api/admin/all-usage-history/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { startDate, endDate, shopId, partId } = req.query;
+    let sql = `SELECT 
+                    s.name AS shop_name, 
+                    p.part_number, 
+                    p.part_name, 
+                    h.usage_time, 
+                    e.name as employee_name,
+                    h.status,
+                    ch.reason as cancellation_reason
+                FROM 
+                    usage_history h
+                LEFT JOIN 
+                    shops s ON h.shop_id = s.id 
+                LEFT JOIN 
+                    parts p ON h.part_id = p.id 
+                LEFT JOIN 
+                    employees e ON h.employee_id = e.id
+                LEFT JOIN
+                    cancellation_history ch ON h.id = ch.usage_history_id`;
+    const whereClauses = [];
+    const params = [];
+    if (startDate) { whereClauses.push("h.usage_time >= ?"); params.push(startDate); }
+    if (endDate) { whereClauses.push("h.usage_time <= ?"); params.push(endDate + ' 23:59:59'); }
+    if (shopId) { whereClauses.push("h.shop_id = ?"); params.push(shopId); }
+    if (partId) { whereClauses.push("h.part_id = ?"); params.push(partId); }
+    if (whereClauses.length > 0) { sql += " WHERE " + whereClauses.join(" AND "); }
+    sql += " ORDER BY h.usage_time DESC";
+
+    try {
+        const rows = await dbAll(sql, params);
+        if (!rows || rows.length === 0) {
+            return res.status(404).send('No usage history to export for the selected criteria.');
+        }
+
+        const header = '工場名,品番,部品名,使用日時,従業員名,状態,取消理由\n';
+        const csvRows = rows.map(row => {
+            const status = row.status === 'cancelled' ? '取消済' : '使用中';
+            const values = [
+                row.shop_name,
+                row.part_number,
+                row.part_name,
+                row.usage_time,
+                row.employee_name,
+                status,
+                row.cancellation_reason || ''
+            ];
+            return values.map(v => `"${String(v || '').replace(/"/g, '''''''')}"`).join(',');
+        });
+
+        const csvString = header + csvRows.join('\n');
+        const bom = '\uFEFF'; // BOM for UTF-8
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="usage-history.csv"');
+        res.status(200).send(Buffer.from(bom + csvString, 'utf8'));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 app.get('/api/admin/reorder-list', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id WHERE i.quantity < i.min_reorder_level ORDER BY s.name, shortage DESC, p.part_name`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
 app.get('/api/admin/reorder-list/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id WHERE i.quantity < i.min_reorder_level ORDER BY s.name, shortage DESC, p.part_name`; try { const rows = await dbAll(sql); if (!rows || rows.length === 0) { return res.status(404).send('No items to export.'); } const header = '工場名,品番,部品名,現在庫数,最低発注レベル,不足数\n'; const csvRows = rows.map(row => `"${row.shop_name}","${row.part_number}","${row.part_name}",${row.quantity},${row.min_reorder_level},${row.shortage}`); const csvString = header + csvRows.join('\n');

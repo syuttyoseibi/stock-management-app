@@ -171,6 +171,12 @@
                              <div class="row">
                                 <div class="col-md-6">
                                     <div class="mb-3"><label for="inventory-shop-select" class="form-label">工場:</label><select id="inventory-shop-select" class="form-select"></select></div>
+                                    <div class="mb-3">
+                                        <label for="inventory-category-select" class="form-label">カテゴリーで絞り込み:</label>
+                                        <select id="inventory-category-select" class="form-select" onchange="filterPartsForInventoryUpdate()">
+                                            <option value="">すべてのカテゴリー</option>
+                                        </select>
+                                    </div>
                                     <div class="mb-3"><label for="inventory-part-select" class="form-label">部品:</label><select id="inventory-part-select" class="form-select"></select></div>
                                     <div class="mb-3"><label for="inventory-quantity" class="form-label">数量:</label><input type="number" id="inventory-quantity" class="form-control" min="0" value="0"></div>
                                     <div class="mb-3"><label for="inventory-min-reorder-level" class="form-label">最低発注レベル:</label><input type="number" id="inventory-min-reorder-level" class="form-control" min="0" value="0"></div>
@@ -315,7 +321,10 @@
                         </div>
                         <!-- 使用履歴 -->
                         <div class="tab-pane fade" id="report-usage-tab">
-                            <h4>使用履歴レポート</h4>
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h4>使用履歴レポート</h4>
+                                <button class="btn btn-secondary" onclick="exportUsageHistoryCSV()"><i class="bi bi-file-earmark-arrow-down"></i> CSVエクスポート</button>
+                            </div>
                             <div class="row g-3 align-items-end mb-3">
                                 <div class="col-md-3"><label for="filter-start-date" class="form-label">開始日:</label><input type="date" id="filter-start-date" class="form-control"></div>
                                 <div class="col-md-3"><label for="filter-end-date" class="form-label">終了日:</label><input type="date" id="filter-end-date" class="form-control"></div>
@@ -716,7 +725,8 @@
                     });
                     sel.value = currentValue;
                 });
-                filterPartsForReplenishment(); // 補充タブの部品リストを初期化
+                filterPartsForReplenishment();
+                filterPartsForInventoryUpdate();
             } catch (error) { showMessage('add-part-message', `部品の読み込みエラー: ${error.message}`, 'danger'); }
         }
 
@@ -726,6 +736,24 @@
             const currentValue = partSelect.value;
             
             partSelect.innerHTML = '<option value="">-- 部品を選択 --</option>'; // デフォルトオプション
+
+            const filteredParts = categoryId 
+                ? allParts.filter(p => p.category_id == categoryId)
+                : allParts;
+
+            filteredParts.forEach(part => {
+                partSelect.innerHTML += `<option value="${part.id}">${part.part_name} (${part.part_number})</option>`;
+            });
+
+            partSelect.value = currentValue;
+        }
+
+        function filterPartsForInventoryUpdate() {
+            const categoryId = document.getElementById('inventory-category-select').value;
+            const partSelect = document.getElementById('inventory-part-select');
+            const currentValue = partSelect.value;
+            
+            partSelect.innerHTML = '<option value="">-- 部品を選択 --</option>';
 
             const filteredParts = categoryId 
                 ? allParts.filter(p => p.category_id == categoryId)
@@ -874,6 +902,7 @@
                 if (!response.ok) throw new Error((await response.json()).error);
                 showMessage('uncategorized-parts-message', 'カテゴリーを保存しました。', 'success');
                 loadUncategorizedParts();
+                loadParts(); // Refresh main parts list as well
             } catch (error) { showMessage('uncategorized-parts-message', `保存エラー: ${error.message}`, 'danger'); }
         }
 
@@ -887,7 +916,12 @@
                 allCategories.forEach(cat => {
                     tableBody.insertRow().innerHTML = `<td>${cat.id}</td><td>${cat.name}</td><td><button class="btn btn-sm btn-secondary" onclick="openEditCategoryModal(${cat.id})">編集</button> <button class="btn btn-sm btn-danger" onclick="deleteCategory(${cat.id}, '${cat.name}')">削除</button></td>`;
                 });
-                const categorySelects = [document.getElementById('new-part-category'), document.getElementById('edit-part-category'), document.getElementById('replenish-category-select')];
+                const categorySelects = [
+                    document.getElementById('new-part-category'), 
+                    document.getElementById('edit-part-category'), 
+                    document.getElementById('replenish-category-select'),
+                    document.getElementById('inventory-category-select')
+                ];
                 categorySelects.forEach(sel => {
                     if (!sel) return;
                     const currentValue = sel.value;
@@ -1239,6 +1273,13 @@
         function editInventory(item) {
             item = JSON.parse(item);
             document.getElementById('inventory-shop-select').value = item.shop_id;
+            // Set category dropdown and filter parts
+            const part = allParts.find(p => p.id === item.part_id);
+            if (part && part.category_id) {
+                document.getElementById('inventory-category-select').value = part.category_id;
+            }
+            filterPartsForInventoryUpdate();
+
             document.getElementById('inventory-part-select').value = item.part_id;
             document.getElementById('inventory-quantity').value = item.quantity;
             document.getElementById('inventory-min-reorder-level').value = item.min_reorder_level;
@@ -1317,6 +1358,16 @@
                         <td>${item.cancellation_reason || ''}</td>`;
                 });
             } catch (error) { alert(`使用履歴の読み込みエラー: ${error.message}`); }
+        }
+
+        function exportUsageHistoryCSV() {
+            const params = new URLSearchParams({
+                startDate: document.getElementById('filter-start-date').value,
+                endDate: document.getElementById('filter-end-date').value,
+                shopId: document.getElementById('filter-shop-id').value,
+                partId: document.getElementById('filter-part-id').value,
+            });
+            window.location.href = `/api/admin/all-usage-history/csv?${params.toString()}`;
         }
 
         function clearReportFilters() {
