@@ -329,6 +329,7 @@ app.get('/api/admin/shops', isAuthenticated, isAdminOrSupplier, async (req, res)
         const rows = await dbAll(sql, params);
         res.json(rows);
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
