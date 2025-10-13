@@ -586,6 +586,18 @@
             document.querySelectorAll('.modal').forEach(modalEl => {
                 modals[modalEl.id] = new bootstrap.Modal(modalEl);
             });
+
+            const addUserModal = document.getElementById('add-user-modal');
+            addUserModal.addEventListener('show.bs.modal', () => {
+                const roleSelect = document.getElementById('new-user-role');
+                if (currentUser.role === 'supplier') {
+                    roleSelect.value = 'shop_user';
+                    roleSelect.disabled = true;
+                    toggleShopSelectForUser('new'); // Ensure shop select is visible
+                } else {
+                    roleSelect.disabled = false;
+                }
+            });
         });
 
         let currentUser = null;
@@ -620,7 +632,6 @@
 
         function setupUIVisibility() {
             if (currentUser.role === 'supplier') {
-                document.getElementById('master-users-nav').style.display = 'none';
                 document.getElementById('master-employees-nav').style.display = 'none';
             }
         }
@@ -642,8 +653,10 @@
             await loadShops();
             await loadCategories();
             await loadParts();
-            if (currentUser.role === 'admin') {
+            if (currentUser.role === 'admin' || currentUser.role === 'supplier') {
                 await loadUsers();
+            }
+            if (currentUser.role === 'admin') {
                 await loadEmployees();
             }
             await loadAllInventory();
@@ -1078,6 +1091,14 @@
             document.getElementById('edit-user-role').value = user.role;
             document.getElementById('edit-password').value = '';
             document.getElementById('edit-user-shop-id').value = user.shop_id || '';
+            
+            const roleSelect = document.getElementById('edit-user-role');
+            if (currentUser.role === 'supplier') {
+                roleSelect.disabled = true;
+            } else {
+                roleSelect.disabled = false;
+            }
+
             toggleShopSelectForUser('edit');
             modals['edit-user-modal'].show();
         }

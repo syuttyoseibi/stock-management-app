@@ -738,57 +738,131 @@ app.post('/api/admin/parts/csv', isAuthenticated, isAdminOrSupplier, upload.sing
     }
 });
 
-app.get('/api/admin/users', isAuthenticated, isAdmin, async (req, res) => { try { const rows = await dbAll("SELECT id, username, role, shop_id FROM users ORDER BY id"); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.post('/api/admin/users', isAuthenticated, isAdmin, async (req, res) => { const { username, password, role, shop_id } = req.body;
- if (!username || !password || !role) {
- return res.status(400).json({ error: 'Username, password, and role are required' });
- }
- if (role === 'shop_user' && !shop_id) {
- return res.status(400).json({ error: 'Shop ID is required for shop users' });
- }
- try {
- const hash = await bcrypt.hash(password, saltRounds);
- const finalShopId = (role === 'admin' || role === 'supplier') ? null : shop_id;
- const result = await dbRun("INSERT INTO users (username, password_hash, role, shop_id) VALUES (?, ?, ?, ?)", [username, hash, role, finalShopId]);
- res.json({ id: result.lastID, username, role, shop_id: finalShopId });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+app.get('/api/admin/users', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    try {
+        let sql = "SELECT id, username, role, shop_id FROM users";
+        const params = [];
+        if (req.session.user.role === 'supplier') {
+            // Suppliers can only see users of shops they manage
+            sql += " WHERE shop_id IN (SELECT id FROM shops WHERE supplier_user_id = ?)";
+            params.push(req.session.user.id);
+        }
+        sql += " ORDER BY id";
+        const rows = await dbAll(sql, params);
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
 });
-app.put('/api/admin/users/:id', isAuthenticated, isAdmin, async (req, res) => { const { id } = req.params;
- const { username, role, shop_id, password } = req.body;
- if (!username || !role) {
- return res.status(400).json({ error: 'Username and role are required' });
- }
- if (role === 'shop_user' && !shop_id) {
- return res.status(400).json({ error: 'Shop ID is required for shop users' });
- }
- try {
- const finalShopId = (role === 'admin' || role === 'supplier') ? null : shop_id;
- if (password) {
- const hash = await bcrypt.hash(password, saltRounds);
- await dbRun("UPDATE users SET username = ?, password_hash = ?, role = ?, shop_id = ? WHERE id = ?", [username, hash, role, finalShopId, id]);
- } else {
- await dbRun("UPDATE users SET username = ?, role = ?, shop_id = ? WHERE id = ?", [username, role, finalShopId, id]);
- }
- res.json({ message: 'User updated successfully' });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+app.post('/api/admin/users', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { username, password, role, shop_id } = req.body;
+    if (!username || !password || !role) {
+        return res.status(400).json({ error: 'Username, password, and role are required' });
+    }
+    if (role === 'shop_user' && !shop_id) {
+        return res.status(400).json({ error: 'Shop ID is required for shop users' });
+    }
+
+    try {
+        if (req.session.user.role === 'supplier') {
+            // Suppliers can only create shop_users for their own shops
+            if (role !== 'shop_user') {
+                return res.status(403).json({ error: 'Forbidden: Suppliers can only create shop_user accounts.' });
+            }
+            const shop = await dbGet("SELECT id FROM shops WHERE id = ? AND supplier_user_id = ?", [shop_id, req.session.user.id]);
+            if (!shop) {
+                return res.status(403).json({ error: 'Forbidden: You can only assign users to a shop you manage.' });
+            }
+        }
+
+        const hash = await bcrypt.hash(password, saltRounds);
+        const finalShopId = (role === 'admin' || role === 'supplier') ? null : shop_id;
+        const result = await dbRun("INSERT INTO users (username, password_hash, role, shop_id) VALUES (?, ?, ?, ?)", [username, hash, role, finalShopId]);
+        res.json({ id: result.lastID, username, role, shop_id: finalShopId });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
 });
-app.delete('/api/admin/users/:id', isAuthenticated, isAdmin, async (req, res) => { const { id } = req.params;
- if (parseInt(id, 10) === req.session.user.id) {
- return res.status(400).json({ error: 'You cannot delete your own account.' });
- }
- try {
- const result = await dbRun("DELETE FROM users WHERE id = ?", [id]);
- if (result.changes === 0) {
- return res.status(404).json({ error: 'User not found' });
- }
- res.json({ message: 'User deleted successfully' });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+app.put('/api/admin/users/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { id } = req.params;
+    const { username, role, shop_id, password } = req.body;
+
+    if (!username || !role) {
+        return res.status(400).json({ error: 'Username and role are required' });
+    }
+    if (role === 'shop_user' && !shop_id) {
+        return res.status(400).json({ error: 'Shop ID is required for shop users' });
+    }
+
+    try {
+        if (req.session.user.role === 'supplier') {
+            // First, verify the user being edited belongs to a shop managed by this supplier
+            const userToEdit = await dbGet(`
+                SELECT u.id FROM users u
+                JOIN shops s ON u.shop_id = s.id
+                WHERE u.id = ? AND s.supplier_user_id = ?`,
+                [id, req.session.user.id]
+            );
+            if (!userToEdit) {
+                return res.status(403).json({ error: 'Forbidden: You can only edit users in shops you manage.' });
+            }
+
+            // Suppliers can only manage shop_users
+            if (role !== 'shop_user') {
+                return res.status(403).json({ error: 'Forbidden: Suppliers can only manage shop_user accounts.' });
+            }
+
+            // Verify the new shop_id also belongs to the supplier
+            const shop = await dbGet("SELECT id FROM shops WHERE id = ? AND supplier_user_id = ?", [shop_id, req.session.user.id]);
+            if (!shop) {
+                return res.status(403).json({ error: 'Forbidden: You can only assign users to a shop you manage.' });
+            }
+        }
+
+        const finalShopId = (role === 'admin' || role === 'supplier') ? null : shop_id;
+        if (password) {
+            const hash = await bcrypt.hash(password, saltRounds);
+            await dbRun("UPDATE users SET username = ?, password_hash = ?, role = ?, shop_id = ? WHERE id = ?", [username, hash, role, finalShopId, id]);
+        } else {
+            await dbRun("UPDATE users SET username = ?, role = ?, shop_id = ? WHERE id = ?", [username, role, finalShopId, id]);
+        }
+        res.json({ message: 'User updated successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+app.delete('/api/admin/users/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { id } = req.params;
+    if (parseInt(id, 10) === req.session.user.id) {
+        return res.status(400).json({ error: 'You cannot delete your own account.' });
+    }
+
+    try {
+        if (req.session.user.role === 'supplier') {
+            // Verify the user being deleted belongs to a shop managed by this supplier
+            const userToDelete = await dbGet(`
+                SELECT u.id FROM users u
+                JOIN shops s ON u.shop_id = s.id
+                WHERE u.id = ? AND s.supplier_user_id = ?`,
+                [id, req.session.user.id]
+            );
+            if (!userToDelete) {
+                return res.status(403).json({ error: 'Forbidden: You can only delete users in shops you manage.' });
+            }
+        }
+
+        const result = await dbRun("DELETE FROM users WHERE id = ?", [id]);
+        if (result.changes === 0) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        res.json({ message: 'User deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- Admin Employee Management ---
