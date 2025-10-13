@@ -189,7 +189,7 @@ app.get('/api/shops/:shopId/inventory', isAuthenticated, async (req, res) => {
     const params = [shopId];
 
     if (supplierId) {
-        sql += ` AND (p.supplier_user_id = ? OR p.supplier_user_id IS NULL)`;
+        sql += ` AND p.supplier_user_id = ?`;
         params.push(supplierId);
     }
 
@@ -228,19 +228,81 @@ app.post('/api/use-part', isAuthenticated, async (req, res) => { const { part_id
  res.status(500).json({ error: "トランザクションエラー: " + err.message });
  }
 });
-app.get('/api/usage-history', isAuthenticated, isShopUser, async (req, res) => { const shop_id = req.session.user.shop_id;
- let { month } = req.query;
- if (!month) {
- const now = new Date();
- month = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
- }
- const sql = `SELECT h.id, p.part_number, p.part_name, h.usage_time, e.name as employee_name, h.status FROM usage_history h JOIN parts p ON h.part_id = p.id JOIN employees e ON h.employee_id = e.id WHERE h.shop_id = ? AND STRFTIME('%Y-%m', h.usage_time) = ? ORDER BY h.usage_time DESC`;
- try {
- const rows = await dbAll(sql, [shop_id, month]);
- res.json(rows);
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+app.get('/api/usage-history', isAuthenticated, isShopUser, async (req, res) => {
+    const shop_id = req.session.user.shop_id;
+    let { month, startDate, endDate } = req.query;
+
+    let sql = `SELECT h.id, p.part_number, p.part_name, h.usage_time, e.name as employee_name, h.status FROM usage_history h JOIN parts p ON h.part_id = p.id JOIN employees e ON h.employee_id = e.id`;
+    const whereClauses = ["h.shop_id = ?"];
+    const params = [shop_id];
+
+    if (month) {
+        whereClauses.push("STRFTIME('%Y-%m', h.usage_time) = ?");
+        params.push(month);
+    } else if (startDate && endDate) {
+        whereClauses.push("h.usage_time BETWEEN ? AND ?");
+        params.push(startDate, endDate + ' 23:59:59');
+    } else {
+        // Default to current month if no range is provided
+        const now = new Date();
+        month = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+        whereClauses.push("STRFTIME('%Y-%m', h.usage_time) = ?");
+        params.push(month);
+    }
+
+    sql += ` WHERE ${whereClauses.join(' AND ')} ORDER BY h.usage_time DESC`;
+
+    try {
+        const rows = await dbAll(sql, params);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/usage-history/csv', isAuthenticated, isShopUser, async (req, res) => {
+    const shop_id = req.session.user.shop_id;
+    let { month, startDate, endDate } = req.query;
+
+    let sql = `SELECT h.id, p.part_number, p.part_name, h.usage_time, e.name as employee_name, h.status, ch.reason as cancellation_reason 
+             FROM usage_history h 
+             JOIN parts p ON h.part_id = p.id 
+             JOIN employees e ON h.employee_id = e.id
+             LEFT JOIN cancellation_history ch ON h.id = ch.usage_history_id`;
+    const whereClauses = ["h.shop_id = ?"];
+    const params = [shop_id];
+
+    if (month) {
+        whereClauses.push("STRFTIME('%Y-%m', h.usage_time) = ?");
+        params.push(month);
+    } else if (startDate && endDate) {
+        whereClauses.push("h.usage_time BETWEEN ? AND ?");
+        params.push(startDate, endDate + ' 23:59:59');
+    }
+
+    sql += ` WHERE ${whereClauses.join(' AND ')} ORDER BY h.usage_time DESC`;
+
+    try {
+        const rows = await dbAll(sql, params);
+        if (!rows || rows.length === 0) {
+            return res.status(404).send('No usage history to export for the selected criteria.');
+        }
+
+        const header = 'ID,品番,部品名,使用日時,従業員名,状態,取消理由\n';
+        const csvRows = rows.map(row => {
+            const status = row.status === 'cancelled' ? '取消済' : '使用中';
+            const values = [ row.id, row.part_number, row.part_name, row.usage_time, row.employee_name, status, row.cancellation_reason || '' ];
+            return values.map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(',');
+        });
+
+        const csvString = header + csvRows.join('\n');
+        const bom = '\uFEFF';
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="usage-history-${shop_id}.csv"`);
+        res.status(200).send(Buffer.from(bom + csvString, 'utf8'));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 app.post('/api/cancel-usage', isAuthenticated, async (req, res) => { const { usage_id, reason } = req.body;
  const cancelled_by_user_id = req.session.user.id;
@@ -265,13 +327,65 @@ app.post('/api/cancel-usage', isAuthenticated, async (req, res) => { const { usa
  }
 });
 
+app.get('/api/shops/:shopId/replenishment-history', isAuthenticated, async (req, res) => {
+    const { shopId } = req.params;
+    const user = req.session.user;
+
+    // Security check: shop_user can only access their own shop's data
+    if (user.role === 'shop_user' && parseInt(shopId, 10) !== user.shop_id) {
+        return res.status(403).json({ error: "Forbidden: You can only access your own shop's history." });
+    }
+
+    const { startDate, endDate } = req.query;
+    const { sql, params } = getReplenishmentHistoryQuery({ ...req.query, shopId }, user);
+
+    try {
+        const rows = await dbAll(sql, params);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/shops/:shopId/replenishment-history/csv', isAuthenticated, async (req, res) => {
+    const { shopId } = req.params;
+    const user = req.session.user;
+
+    if (user.role === 'shop_user' && parseInt(shopId, 10) !== user.shop_id) {
+        return res.status(403).json({ error: "Forbidden: You can only access your own shop's history." });
+    }
+
+    const { sql, params } = getReplenishmentHistoryQuery({ ...req.query, shopId }, user);
+
+    try {
+        const rows = await dbAll(sql, params);
+        if (!rows || rows.length === 0) {
+            return res.status(404).send('No replenishment history to export for the selected criteria.');
+        }
+
+        const header = '補充日時,品番,部品名,補充数,担当者\n';
+        const csvRows = rows.map(row => {
+            const values = [ row.replenished_at, row.part_number, row.part_name, row.quantity_added, row.user_name ];
+            return values.map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(',');
+        });
+
+        const csvString = header + csvRows.join('\n');
+        const bom = '\uFEFF';
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="replenishment-history-${shopId}.csv"`);
+        res.status(200).send(Buffer.from(bom + csvString, 'utf8'));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // --- Admin APIs ---
 app.get('/api/admin/shops', isAuthenticated, isAdminOrSupplier, async (req, res) => {
     try {
         let sql = "SELECT id, name FROM shops";
         const params = [];
         if (req.session.user.role === 'supplier') {
-            sql += " WHERE supplier_user_id = ? OR supplier_user_id IS NULL";
+            sql += " WHERE supplier_user_id = ?";
             params.push(req.session.user.id);
         }
         sql += " ORDER BY id";
@@ -356,7 +470,7 @@ app.get('/api/admin/categories', isAuthenticated, isAdminOrSupplier, async (req,
         let sql = "SELECT id, name FROM categories";
         const params = [];
         if (req.session.user.role === 'supplier') {
-            sql += " WHERE supplier_user_id = ? OR supplier_user_id IS NULL";
+            sql += " WHERE supplier_user_id = ?";
             params.push(req.session.user.id);
         }
         sql += " ORDER BY id";
@@ -435,7 +549,7 @@ app.get('/api/admin/parts', isAuthenticated, isAdminOrSupplier, async (req, res)
     let sql = `SELECT p.id, p.part_number, p.part_name, p.category_id, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id`;
     const params = [];
     if (req.session.user.role === 'supplier') {
-        sql += " WHERE p.supplier_user_id = ? OR p.supplier_user_id IS NULL";
+        sql += " WHERE p.supplier_user_id = ?";
         params.push(req.session.user.id);
     }
     sql += " ORDER BY p.id";
@@ -453,7 +567,7 @@ app.get('/api/admin/parts/uncategorized', isAuthenticated, isAdminOrSupplier, as
         
         let uncategorizedCategory;
         if (supplierId) {
-            uncategorizedCategory = await dbGet("SELECT id FROM categories WHERE name = ? AND (supplier_user_id = ? OR supplier_user_id IS NULL)", ['未分類', supplierId]);
+            uncategorizedCategory = await dbGet("SELECT id FROM categories WHERE name = ? AND supplier_user_id = ?", ['未分類', supplierId]);
         } else {
             uncategorizedCategory = await dbGet("SELECT id FROM categories WHERE name = ? AND supplier_user_id IS NULL", ['未分類']);
         }
@@ -463,7 +577,7 @@ app.get('/api/admin/parts/uncategorized', isAuthenticated, isAdminOrSupplier, as
         const params = [uncategorizedId];
 
         if (supplierId) {
-            sql += " AND (supplier_user_id = ? OR supplier_user_id IS NULL)";
+            sql += " AND supplier_user_id = ?";
             params.push(supplierId);
         }
         sql += " ORDER BY id";
@@ -808,7 +922,7 @@ app.get('/api/admin/all-inventory', isAuthenticated, isAdminOrSupplier, async (r
     let sql = `SELECT i.part_id, i.shop_id, s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, i.location_info FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id`;
     const params = [];
     if (req.session.user.role === 'supplier') {
-        sql += " WHERE p.supplier_user_id = ? OR p.supplier_user_id IS NULL";
+        sql += " WHERE p.supplier_user_id = ?";
         params.push(req.session.user.id);
     }
     sql += " ORDER BY s.name, p.part_name";
@@ -1021,7 +1135,7 @@ app.get('/api/admin/all-usage-history', isAuthenticated, isAdminOrSupplier, asyn
     const params = [];
 
     if (req.session.user.role === 'supplier') {
-        whereClauses.push("(p.supplier_user_id = ? OR p.supplier_user_id IS NULL)");
+        whereClauses.push("p.supplier_user_id = ?");
         params.push(req.session.user.id);
     }
     if (startDate) { whereClauses.push("h.usage_time >= ?"); params.push(startDate); }
@@ -1055,7 +1169,7 @@ app.get('/api/admin/all-usage-history/csv', isAuthenticated, isAdminOrSupplier, 
     const params = [];
 
     if (req.session.user.role === 'supplier') {
-        whereClauses.push("(p.supplier_user_id = ? OR p.supplier_user_id IS NULL)");
+        whereClauses.push("p.supplier_user_id = ?");
         params.push(req.session.user.id);
     }
     if (startDate) { whereClauses.push("h.usage_time >= ?"); params.push(startDate); }
@@ -1096,7 +1210,7 @@ app.get('/api/admin/reorder-list', isAuthenticated, isAdminOrSupplier, async (re
                WHERE i.quantity < i.min_reorder_level`;
     const params = [];
     if (req.session.user.role === 'supplier') {
-        sql += " AND (p.supplier_user_id = ? OR p.supplier_user_id IS NULL)";
+        sql += " AND p.supplier_user_id = ?";
         params.push(req.session.user.id);
     }
     sql += " ORDER BY s.name, shortage DESC, p.part_name";
@@ -1115,7 +1229,7 @@ app.get('/api/admin/reorder-list/csv', isAuthenticated, isAdminOrSupplier, async
                WHERE i.quantity < i.min_reorder_level`;
     const params = [];
     if (req.session.user.role === 'supplier') {
-        sql += " AND (p.supplier_user_id = ? OR p.supplier_user_id IS NULL)";
+        sql += " AND p.supplier_user_id = ?";
         params.push(req.session.user.id);
     }
     sql += " ORDER BY s.name, shortage DESC, p.part_name";
@@ -1147,7 +1261,7 @@ const getReplenishmentHistoryQuery = (queryParams, user) => {
     const whereClauses = [];
     const params = [];
     if (user.role === 'supplier') {
-        whereClauses.push("(p.supplier_user_id = ? OR p.supplier_user_id IS NULL)");
+        whereClauses.push("p.supplier_user_id = ?");
         params.push(user.id);
     }
     if (startDate) { whereClauses.push("rh.replenished_at >= ?"); params.push(startDate); }
