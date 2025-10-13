@@ -298,4 +298,20 @@ app.get('/api/usage-history/csv', isAuthenticated, isShopUser, async (req, res) 
         const csvRows = rows.map(row => {
             const status = row.status === 'cancelled' ? '取消済' : '使用中';
             const values = [ row.id, row.part_number, row.part_name, row.usage_time, row.employee_name, status, row.cancellation_reason || '' ];
-            return values.map(v => `"${String(v || '').replace(/
+            const escapedValues = values.map(v => {
+                const stringValue = String(v || '');
+                // Escape double quotes by doubling them
+                const escaped = stringValue.replace(/"/g, '""');
+                return `"${escaped}"`;
+            });
+            return escapedValues.join(',');
+        });
+
+        const csv = header + csvRows.join('\n');
+        res.header('Content-Type', 'text/csv; charset=utf-8');
+        res.send('\uFEFF' + csv); // Add BOM for Excel
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
