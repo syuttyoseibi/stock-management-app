@@ -865,6 +865,41 @@ app.delete('/api/admin/users/:id', isAuthenticated, isAdminOrSupplier, async (re
     }
 });
 
+// --- Supplier specific APIs ---
+app.post('/api/supplier/register-shop', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    if (req.session.user.role !== 'supplier') {
+        return res.status(403).json({ error: 'Forbidden: This action is only available to suppliers.' });
+    }
+
+    const { shopName, username, password } = req.body;
+    if (!shopName || !username || !password) {
+        return res.status(400).json({ error: 'Shop name, username, and password are all required.' });
+    }
+
+    try {
+        await dbRun("BEGIN TRANSACTION;");
+
+        // 1. Create the shop
+        const shopResult = await dbRun("INSERT INTO shops (name, supplier_user_id) VALUES (?, ?)", [shopName, req.session.user.id]);
+        const newShopId = shopResult.lastID;
+
+        // 2. Create the user for that shop
+        const hash = await bcrypt.hash(password, saltRounds);
+        await dbRun("INSERT INTO users (username, password_hash, role, shop_id) VALUES (?, ?, 'shop_user', ?)", [username, hash, newShopId]);
+
+        await dbRun("COMMIT;");
+        res.status(201).json({ message: `Shop '${shopName}' and user '${username}' created successfully.` });
+
+    } catch (err) {
+        await dbRun("ROLLBACK;");
+        console.error("Shop and user registration failed:", err);
+        if (err.code === 'SQLITE_CONSTRAINT') {
+            return res.status(409).json({ error: 'A shop or user with that name already exists.' });
+        }
+        res.status(500).json({ error: 'An internal server error occurred.' });
+    }
+});
+
 // --- Admin Employee Management ---
 app.get('/api/admin/employees', isAuthenticated, isAdmin, async (req, res) => {
     const { shop_id } = req.query;

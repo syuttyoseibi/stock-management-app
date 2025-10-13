@@ -67,11 +67,14 @@
         </div>
         <div class="offcanvas-body d-flex flex-column p-3">
             <ul class="nav nav-pills flex-column mb-auto">
+                <li class="nav-item" id="register-shop-nav" style="display: none;">
+                    <a href="#register-shop" class="nav-link" data-bs-toggle="tab" onclick="showTab('register-shop')"><i class="bi bi-building-add"></i>新規工場登録</a>
+                </li>
                 <li class="nav-item">
-                    <a href="#inventory-management" class="nav-link active" data-bs-toggle="tab" onclick="showTab('inventory-management')"><i class="bi bi-boxes"></i>在庫管理</a>
+                    <a href="#inventory-management" id="inventory-management-nav-link" class="nav-link active" data-bs-toggle="tab" onclick="showTab('inventory-management')"><i class="bi bi-boxes"></i>在庫管理</a>
                 </li>
                 <li>
-                    <a href="#master-data" class="nav-link" data-bs-toggle="tab" onclick="showTab('master-data')"><i class="bi bi-database"></i>マスター管理</a>
+                    <a href="#master-data" id="master-data-nav-link" class="nav-link" data-bs-toggle="tab" onclick="showTab('master-data')"><i class="bi bi-database"></i>マスター管理</a>
                 </li>
                 <li>
                     <a href="#reports" class="nav-link" data-bs-toggle="tab" onclick="showTab('reports')"><i class="bi bi-file-earmark-bar-graph"></i>レポート</a>
@@ -86,6 +89,20 @@
 
     <div class="main-content">
         <div class="tab-content">
+            <!-- 新規工場登録タブ (部品商向け) -->
+            <div class="tab-pane fade" id="register-shop">
+                <h1><i class="bi bi-building-add"></i> 新規工場登録</h1>
+                <div class="card">
+                    <div class="card-body col-md-6">
+                        <p class="card-text">新しい取引先の工場と、その工場の初期担当者アカウントを同時に作成します。</p>
+                        <div class="mb-3"><label for="new-shop-name-supplier" class="form-label">工場名:</label><input type="text" id="new-shop-name-supplier" class="form-control" placeholder="例: 株式会社〇〇モータース"></div>
+                        <div class="mb-3"><label for="new-shop-user-username" class="form-label">担当者ユーザー名:</label><input type="text" id="new-shop-user-username" class="form-control" placeholder="例: maruyama_motors"></div>
+                        <div class="mb-3"><label for="new-shop-user-password" class="form-label">担当者パスワード:</label><input type="password" id="new-shop-user-password" class="form-control"></div>
+                        <button class="btn btn-primary" onclick="registerShopAndUser()">この内容で登録する</button>
+                        <p id="register-shop-message" class="mt-3"></p>
+                    </div>
+                </div>
+            </div>
             <!-- 在庫管理タブ -->
             <div class="tab-pane fade show active" id="inventory-management">
                 <h1><i class="bi bi-boxes"></i> 在庫管理</h1>
@@ -632,13 +649,64 @@
 
         function setupUIVisibility() {
             if (currentUser.role === 'supplier') {
+                // Show and configure supplier-specific UI
+                document.getElementById('register-shop-nav').style.display = 'block';
+                const masterDataLink = document.getElementById('master-data-nav-link');
+                masterDataLink.innerHTML = `<i class="bi bi-pencil-square"></i> 登録済みデータ管理`;
+
+                // Hide unnecessary tabs for suppliers
                 document.getElementById('master-employees-nav').style.display = 'none';
+                
+                // Set default active tab for supplier
+                showTab('register-shop');
+                document.getElementById('inventory-management-nav-link').classList.remove('active');
+                document.getElementById('register-shop').classList.add('show', 'active');
+                document.getElementById('inventory-management').classList.remove('show', 'active');
+                document.getElementById('register-shop-nav').querySelector('a').classList.add('active');
+
+            } else {
+                // Default admin view
+                document.getElementById('register-shop-nav').style.display = 'none';
             }
         }
 
         async function logout() {
             await fetch('/api/logout', { method: 'POST' });
             window.location.href = '/login.html';
+        }
+
+        async function registerShopAndUser() {
+            const shopName = document.getElementById('new-shop-name-supplier').value;
+            const username = document.getElementById('new-shop-user-username').value;
+            const password = document.getElementById('new-shop-user-password').value;
+
+            if (!shopName || !username || !password) {
+                showMessage('register-shop-message', '工場名、担当者ユーザー名、パスワードをすべて入力してください。', 'danger');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/supplier/register-shop', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shopName, username, password })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    showMessage('register-shop-message', result.message, 'success');
+                    // Clear fields
+                    document.getElementById('new-shop-name-supplier').value = '';
+                    document.getElementById('new-shop-user-username').value = '';
+                    document.getElementById('new-shop-user-password').value = '';
+                    // Reload shops and users to reflect the new data
+                    await loadShops();
+                    await loadUsers();
+                } else {
+                    showMessage('register-shop-message', `エラー: ${result.error}`, 'danger');
+                }
+            } catch (error) {
+                showMessage('register-shop-message', `通信エラー: ${error.message}`, 'danger');
+            }
         }
 
         function showTab(tabId) {
