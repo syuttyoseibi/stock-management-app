@@ -315,3 +315,17 @@ app.get('/api/usage-history/csv', isAuthenticated, isShopUser, async (req, res) 
         res.status(500).json({ error: err.message });
     }
 });
+
+// --- Server Start ---
+const startServer = async () => {
+    await initializeDatabase();
+    if (require.main === module) {
+        app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+    }
+};
+
+if (process.env.NODE_ENV !== 'test') {
+    startServer();
+}
+
+module.exports = { app, initializeDatabase, db };
