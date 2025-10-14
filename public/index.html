@@ -447,7 +447,7 @@
             }
             tableBody.innerHTML = '<tr><td colspan="5">読み込み中...</td></tr>';
             try {
-                const response = await fetch(`/api/shops/${currentUser.shop_id}/replenishment-history?startDate=${startDate}&endDate=${endDate}`);
+                const response = await fetch(`/api/replenishment-history?startDate=${startDate}&endDate=${endDate}`);
                 if (!response.ok) throw new Error('補充履歴の取得に失敗しました');
                 const history = await response.json();
                 tableBody.innerHTML = '';
@@ -477,7 +477,7 @@
             const startDate = document.getElementById('replenishment-start-date').value;
             const endDate = document.getElementById('replenishment-end-date').value;
             if (!startDate || !endDate) return alert('CSVをエクスポートするには開始日と終了日を選択してください。');
-            window.location.href = `/api/shops/${currentUser.shop_id}/replenishment-history/csv?startDate=${startDate}&endDate=${endDate}`;
+            window.location.href = `/api/replenishment-history/csv?startDate=${startDate}&endDate=${endDate}`;
         }
 
         function openCancelModal(usageId) {

@@ -67,9 +67,7 @@
         </div>
         <div class="offcanvas-body d-flex flex-column p-3">
             <ul class="nav nav-pills flex-column mb-auto">
-                <li class="nav-item" id="register-shop-nav" style="display: none;">
-                    <a href="#register-shop" class="nav-link" data-bs-toggle="tab" onclick="showTab('register-shop')"><i class="bi bi-building-add"></i>新規工場登録</a>
-                </li>
+
                 <li class="nav-item">
                     <a href="#inventory-management" id="inventory-management-nav-link" class="nav-link active" data-bs-toggle="tab" onclick="showTab('inventory-management')"><i class="bi bi-boxes"></i>在庫管理</a>
                 </li>
@@ -88,21 +86,8 @@
     </div>
 
     <div class="main-content">
+        <div id="global-message"></div>
         <div class="tab-content">
-            <!-- 新規工場登録タブ (部品商向け) -->
-            <div class="tab-pane fade" id="register-shop">
-                <h1><i class="bi bi-building-add"></i> 新規工場登録</h1>
-                <div class="card">
-                    <div class="card-body col-md-6">
-                        <p class="card-text">新しい取引先の工場と、その工場の初期担当者アカウントを同時に作成します。</p>
-                        <div class="mb-3"><label for="new-shop-name-supplier" class="form-label">工場名:</label><input type="text" id="new-shop-name-supplier" class="form-control" placeholder="例: 株式会社〇〇モータース"></div>
-                        <div class="mb-3"><label for="new-shop-user-username" class="form-label">担当者ユーザー名:</label><input type="text" id="new-shop-user-username" class="form-control" placeholder="例: maruyama_motors"></div>
-                        <div class="mb-3"><label for="new-shop-user-password" class="form-label">担当者パスワード:</label><input type="password" id="new-shop-user-password" class="form-control"></div>
-                        <button class="btn btn-primary" onclick="registerShopAndUser()">この内容で登録する</button>
-                        <p id="register-shop-message" class="mt-3"></p>
-                    </div>
-                </div>
-            </div>
             <!-- 在庫管理タブ -->
             <div class="tab-pane fade show active" id="inventory-management">
                 <h1><i class="bi bi-boxes"></i> 在庫管理</h1>
@@ -124,11 +109,11 @@
                             <div class="row g-3 mb-3">
                                 <div class="col-md-6">
                                     <label for="inv-filter-shop" class="form-label">工場で絞り込み:</label>
-                                    <select id="inv-filter-shop" class="form-select" onchange="filterAllInventory()"><option value="">すべて</option></select>
+                                    <select id="inv-filter-shop" class="form-select"><option value="">すべて</option></select>
                                 </div>
                                 <div class="col-md-6">
                                     <label for="inv-filter-part" class="form-label">部品名/品番で絞り込み:</label>
-                                    <input type="text" id="inv-filter-part" class="form-control" oninput="filterAllInventory()" placeholder="部品名または品番を入力...">
+                                    <input type="text" id="inv-filter-part" class="form-control" placeholder="部品名または品番を入力...">
                                 </div>
                             </div>
                             <div class="table-responsive">
@@ -143,13 +128,17 @@
                             <h4>在庫補充</h4>
                             <div class="row">
                                 <div class="col-md-6">
+                                    <div class="mb-3" id="replenish-employee-group" style="display: none;">
+                                        <label for="replenish-employee-select" class="form-label">補充担当者:</label>
+                                        <select id="replenish-employee-select" class="form-select"></select>
+                                    </div>
                                     <div class="mb-3">
                                         <label for="replenish-shop-select" class="form-label">工場:</label>
                                         <select id="replenish-shop-select" class="form-select"></select>
                                     </div>
                                     <div class="mb-3">
                                         <label for="replenish-category-select" class="form-label">カテゴリーで絞り込み:</label>
-                                        <select id="replenish-category-select" class="form-select" onchange="filterPartsForReplenishment()">
+                                        <select id="replenish-category-select" class="form-select">
                                             <option value="">すべてのカテゴリー</option>
                                         </select>
                                     </div>
@@ -161,7 +150,7 @@
                                         <label for="replenish-quantity" class="form-label">補充数量:</label>
                                         <input type="number" id="replenish-quantity" class="form-control" min="1" value="1">
                                     </div>
-                                    <button class="btn btn-primary" onclick="replenishStock()"><i class="bi bi-plus-circle"></i> 補充を実行</button>
+                                    <button class="btn btn-primary" onclick="replenishStockFromForm()"><i class="bi bi-plus-circle"></i> 補充を実行</button>
                                     <p id="replenish-message" class="mt-3"></p>
                                 </div>
                             </div>
@@ -171,7 +160,7 @@
                             <h4>棚卸し</h4>
                             <div class="mb-3">
                                 <label for="stocktake-shop-select" class="form-label">棚卸し対象の工場を選択してください:</label>
-                                <select id="stocktake-shop-select" class="form-select" onchange="loadStocktakeList()"><option value="">-- 工場を選択 --</option></select>
+                                <select id="stocktake-shop-select" class="form-select"><option value="">-- 工場を選択 --</option></select>
                             </div>
                             <div id="stocktake-area" class="d-none">
                                 <div class="table-responsive">
@@ -192,7 +181,7 @@
                                     <div class="mb-3"><label for="inventory-shop-select" class="form-label">工場:</label><select id="inventory-shop-select" class="form-select"></select></div>
                                     <div class="mb-3">
                                         <label for="inventory-category-select" class="form-label">カテゴリーで絞り込み:</label>
-                                        <select id="inventory-category-select" class="form-select" onchange="filterPartsForInventoryUpdate()">
+                                        <select id="inventory-category-select" class="form-select">
                                             <option value="">すべてのカテゴリー</option>
                                         </select>
                                     </div>
@@ -217,9 +206,9 @@
                         <ul class="nav nav-tabs card-header-tabs">
                             <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#master-parts-tab">部品</a></li>
                             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#master-categories-tab">カテゴリー</a></li>
+                            <li class="nav-item" id="master-suppliers-nav" style="display: none;"><a class="nav-link" data-bs-toggle="tab" href="#master-suppliers-tab">部品商</a></li>
                             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#master-shops-tab">工場</a></li>
-                            <li class="nav-item" id="master-employees-nav"><a class="nav-link" data-bs-toggle="tab" href="#master-employees-tab">従業員</a></li>
-                            <li class="nav-item" id="master-users-nav"><a class="nav-link" data-bs-toggle="tab" href="#master-users-tab">ユーザー</a></li>
+                            <li class="nav-item" id="master-supplier-employees-nav" style="display: none;"><a class="nav-link" data-bs-toggle="tab" href="#master-supplier-employees-tab">担当者</a></li>
                             <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#master-uncategorized-tab">未分類部品</a></li>
                         </ul>
                     </div>
@@ -259,6 +248,19 @@
                                 </table>
                             </div>
                         </div>
+                        <!-- 部品商 (Admin only) -->
+                        <div class="tab-pane fade" id="master-suppliers-tab">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h4>部品商マスタ</h4>
+                                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#add-supplier-modal"><i class="bi bi-plus-circle"></i> 新規追加</button>
+                            </div>
+                            <div class="table-responsive">
+                                <table id="suppliers-table" class="table table-striped table-hover">
+                                    <thead><tr><th>ID</th><th>部品商名</th><th>ログインID</th><th>操作</th></tr></thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
                         <!-- 工場 -->
                         <div class="tab-pane fade" id="master-shops-tab">
                             <div class="d-flex justify-content-between align-items-center mb-3">
@@ -267,33 +269,20 @@
                             </div>
                             <div class="table-responsive">
                                 <table id="shops-table" class="table table-striped table-hover">
-                                    <thead><tr><th>ID</th><th>工場名</th><th>操作</th></tr></thead>
+                                    <thead><tr><th>ID</th><th>工場名</th><th>ログインID</th><th>操作</th></tr></thead>
                                     <tbody></tbody>
                                 </table>
                             </div>
                         </div>
-                        <!-- 従業員 -->
-                        <div class="tab-pane fade" id="master-employees-tab">
+                        <!-- 担当者 (Supplier only) -->
+                        <div class="tab-pane fade" id="master-supplier-employees-tab">
                             <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h4>従業員マスタ</h4>
-                                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#add-employee-modal"><i class="bi bi-plus-circle"></i> 新規追加</button>
+                                <h4>担当者マスタ</h4>
+                                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#add-supplier-employee-modal"><i class="bi bi-plus-circle"></i> 新規追加</button>
                             </div>
                             <div class="table-responsive">
-                                <table id="employees-table" class="table table-striped table-hover">
-                                    <thead><tr><th>ID</th><th>従業員名</th><th>所属工場</th><th>状態</th><th>操作</th></tr></thead>
-                                    <tbody></tbody>
-                                </table>
-                            </div>
-                        </div>
-                        <!-- ユーザー -->
-                        <div class="tab-pane fade" id="master-users-tab">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h4>ユーザーマスタ</h4>
-                                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#add-user-modal"><i class="bi bi-plus-circle"></i> 新規追加</button>
-                            </div>
-                            <div class="table-responsive">
-                                <table id="users-table" class="table table-striped table-hover">
-                                    <thead><tr><th>ID</th><th>ユーザー名</th><th>ロール</th><th>工場</th><th>操作</th></tr></thead>
+                                <table id="supplier-employees-table" class="table table-striped table-hover">
+                                    <thead><tr><th>ID</th><th>担当者名</th><th>状態</th><th>操作</th></tr></thead>
                                     <tbody></tbody>
                                 </table>
                             </div>
@@ -355,7 +344,7 @@
                             </div>
                             <div class="table-responsive">
                                 <table id="usage-history-table" class="table table-striped table-hover">
-                                    <thead><tr><th>工場名</th><th>品番</th><th>部品名</th><th>使用日時</th><th>従業員名</th><th>状態</th><th>取消理由</th></tr></thead>
+                                    <thead><tr><th>工場名</th><th>品番</th><th>部品名</th><th>使用日時</th><th>従業員名</th><th>取消理由</th></tr></thead>
                                     <tbody></tbody>
                                 </table>
                             </div>
@@ -388,6 +377,67 @@
     </div>
 
     <!-- Modals -->
+    <!-- Add Supplier Modal -->
+    <div class="modal fade" id="add-supplier-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">新しい部品商を追加</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div class="mb-3"><label for="new-supplier-name" class="form-label">部品商名:</label><input type="text" id="new-supplier-name" class="form-control"></div>
+                    <div class="mb-3"><label for="new-supplier-username" class="form-label">ログインID:</label><input type="text" id="new-supplier-username" class="form-control"></div>
+                    <div class="mb-3"><label for="new-supplier-password" class="form-label">パスワード:</label><input type="password" id="new-supplier-password" class="form-control"></div>
+                    <p id="add-supplier-message"></p>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button><button type="button" class="btn btn-primary" onclick="addSupplier()">追加</button></div>
+            </div>
+        </div>
+    </div>
+    <!-- Edit Supplier Modal -->
+    <div class="modal fade" id="edit-supplier-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">部品商 編集</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <input type="hidden" id="edit-supplier-id">
+                    <div class="mb-3"><label for="edit-supplier-name" class="form-label">部品商名:</label><input type="text" id="edit-supplier-name" class="form-control"></div>
+                    <div class="mb-3"><label for="edit-supplier-username" class="form-label">ログインID:</label><input type="text" id="edit-supplier-username" class="form-control"></div>
+                    <div class="mb-3"><label for="edit-supplier-password" class="form-label">新しいパスワード (変更する場合のみ):</label><input type="password" id="edit-supplier-password" class="form-control"></div>
+                    <p id="edit-supplier-message"></p>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button><button type="button" class="btn btn-primary" onclick="updateSupplier()">保存</button></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Supplier Employee Modal -->
+    <div class="modal fade" id="add-supplier-employee-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">新しい担当者を追加</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <div class="mb-3"><label for="new-supplier-employee-name" class="form-label">担当者名:</label><input type="text" id="new-supplier-employee-name" class="form-control"></div>
+                    <p id="add-supplier-employee-message"></p>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button><button type="button" class="btn btn-primary" onclick="addSupplierEmployee()">追加</button></div>
+            </div>
+        </div>
+    </div>
+    <!-- Edit Supplier Employee Modal -->
+    <div class="modal fade" id="edit-supplier-employee-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">担当者 編集</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <input type="hidden" id="edit-supplier-employee-id">
+                    <div class="mb-3"><label for="edit-supplier-employee-name" class="form-label">担当者名:</label><input type="text" id="edit-supplier-employee-name" class="form-control"></div>
+                    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="edit-supplier-employee-is-active"><label class="form-check-label" for="edit-supplier-employee-is-active">有効</label></div>
+                    <p id="edit-supplier-employee-message"></p>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button><button type="button" class="btn btn-primary" onclick="updateSupplierEmployee()">保存</button></div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="analysis-modal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
@@ -409,6 +459,10 @@
                     <input type="hidden" id="rfl-part-id">
                     <p><strong>工場:</strong> <span id="rfl-shop-name"></span></p>
                     <p><strong>部品:</strong> <span id="rfl-part-name"></span></p>
+                    <div class="mb-3" id="rfl-employee-group" style="display: none;">
+                        <label for="rfl-employee-select" class="form-label">補充担当者:</label>
+                        <select id="rfl-employee-select" class="form-select"></select>
+                    </div>
                     <div class="mb-3">
                         <label for="rfl-quantity" class="form-label">補充数量:</label>
                         <input type="number" id="rfl-quantity" class="form-control" min="1" value="1">
@@ -426,7 +480,9 @@
             <div class="modal-content">
                 <div class="modal-header"><h5 class="modal-title">新しい工場を追加</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                 <div class="modal-body">
-                    <div class="mb-3"><label for="new-shop-name" class="form-label">工場名:</label><input type="text" id="new-shop-name" class="form-control" placeholder="例: C整備工場"></div>
+                    <div class="mb-3"><label for="new-shop-name" class="form-label">工場名:</label><input type="text" id="new-shop-name" class="form-control"></div>
+                    <div class="mb-3"><label for="new-shop-username" class="form-label">ログインID:</label><input type="text" id="new-shop-username" class="form-control"></div>
+                    <div class="mb-3"><label for="new-shop-password" class="form-label">パスワード:</label><input type="password" id="new-shop-password" class="form-control"></div>
                     <p id="add-shop-message"></p>
                 </div>
                 <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button><button type="button" class="btn btn-primary" onclick="addShop()">追加</button></div>
@@ -441,6 +497,8 @@
                 <div class="modal-body">
                     <input type="hidden" id="edit-shop-id">
                     <div class="mb-3"><label for="edit-shop-name" class="form-label">工場名:</label><input type="text" id="edit-shop-name" class="form-control"></div>
+                    <div class="mb-3"><label for="edit-shop-username" class="form-label">ログインID:</label><input type="text" id="edit-shop-username" class="form-control"></div>
+                    <div class="mb-3"><label for="edit-shop-password" class="form-label">新しいパスワード (変更する場合のみ):</label><input type="password" id="edit-shop-password" class="form-control"></div>
                     <p id="edit-shop-message"></p>
                 </div>
                 <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button><button type="button" class="btn btn-primary" onclick="updateShop()">保存</button></div>
@@ -519,250 +577,405 @@
             </div>
         </div>
     </div>
-    <!-- Add Employee Modal -->
-    <div class="modal fade" id="add-employee-modal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header"><h5 class="modal-title">新しい従業員を追加</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                <div class="modal-body">
-                    <div class="mb-3"><label for="new-employee-name" class="form-label">従業員名:</label><input type="text" id="new-employee-name" class="form-control" placeholder="例: 鈴木 一郎"></div>
-                    <div class="mb-3"><label for="new-employee-shop-id" class="form-label">所属工場:</label><select id="new-employee-shop-id" class="form-select"></select></div>
-                    <p id="add-employee-message"></p>
-                </div>
-                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button><button type="button" class="btn btn-primary" onclick="addEmployee()">追加</button></div>
-            </div>
-        </div>
-    </div>
-    <!-- Edit Employee Modal -->
-    <div class="modal fade" id="edit-employee-modal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header"><h5 class="modal-title">従業員編集</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                <div class="modal-body">
-                    <input type="hidden" id="edit-employee-id">
-                    <div class="mb-3"><label for="edit-employee-name" class="form-label">従業員名:</label><input type="text" id="edit-employee-name" class="form-control"></div>
-                    <div class="mb-3"><label for="edit-employee-shop-id" class="form-label">所属工場:</label><select id="edit-employee-shop-id" class="form-select"></select></div>
-                    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="edit-employee-is-active"><label class="form-check-label" for="edit-employee-is-active">有効</label></div>
-                    <p id="edit-employee-message"></p>
-                </div>
-                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button><button type="button" class="btn btn-primary" onclick="updateEmployee()">保存</button></div>
-            </div>
-        </div>
-    </div>
-    <!-- Add User Modal -->
-    <div class="modal fade" id="add-user-modal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header"><h5 class="modal-title">新しいユーザーを追加</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                <div class="modal-body">
-                    <div class="mb-3"><label for="new-username" class="form-label">ユーザー名:</label><input type="text" id="new-username" class="form-control" placeholder="例: shopuser1"></div>
-                    <div class="mb-3">
-                        <label for="new-password" class="form-label">パスワード:</label>
-                        <div class="input-group">
-                            <input type="password" id="new-password" class="form-control" placeholder="パスワード">
-                            <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('new-password', this)"><i class="bi bi-eye-slash"></i></button>
-                        </div>
-                    </div>
-                    <div class="mb-3"><label for="new-user-role" class="form-label">ロール:</label><select id="new-user-role" class="form-select" onchange="toggleShopSelectForUser('new')"><option value="admin">管理者</option><option value="supplier">部品商</option><option value="shop_user">整備工場ユーザー</option></select></div>
-                    <div class="mb-3" id="new-user-shop-group" style="display: none;"><label for="new-user-shop-id" class="form-label">所属工場:</label><select id="new-user-shop-id" class="form-select"></select></div>
-                    <p id="add-user-message"></p>
-                </div>
-                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button><button type="button" class="btn btn-primary" onclick="addUser()">追加</button></div>
-            </div>
-        </div>
-    </div>
-    <!-- Edit User Modal -->
-    <div class="modal fade" id="edit-user-modal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header"><h5 class="modal-title">ユーザー編集</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                <div class="modal-body">
-                    <input type="hidden" id="edit-user-id">
-                    <div class="mb-3"><label for="edit-username" class="form-label">ユーザー名:</label><input type="text" id="edit-username" class="form-control"></div>
-                    <div class="mb-3">
-                        <label for="edit-password" class="form-label">新しいパスワード (変更する場合のみ):</label>
-                        <div class="input-group">
-                            <input type="password" id="edit-password" class="form-control" placeholder="変更しない場合は空のまま">
-                            <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('edit-password', this)"><i class="bi bi-eye-slash"></i></button>
-                        </div>
-                    </div>
-                    <div class="mb-3"><label for="edit-user-role" class="form-label">ロール:</label><select id="edit-user-role" class="form-select" onchange="toggleShopSelectForUser('edit')"><option value="admin">管理者</option><option value="supplier">部品商</option><option value="shop_user">整備工場ユーザー</option></select></div>
-                    <div class="mb-3" id="edit-user-shop-group" style="display: none;"><label for="edit-user-shop-id" class="form-label">所属工場:</label><select id="edit-user-shop-id" class="form-select"></select></div>
-                    <p id="edit-user-message"></p>
-                </div>
-                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button><button type="button" class="btn btn-primary" onclick="updateUser()">保存</button></div>
-            </div>
-        </div>
-    </div>
 
+    <!-- Edit Inventory Modal -->
+    <div class="modal fade" id="edit-inventory-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">在庫情報 修正</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="edit-inv-shop-id">
+                    <input type="hidden" id="edit-inv-part-id">
+                    <p><strong>工場:</strong> <span id="edit-inv-shop-name"></span></p>
+                    <p><strong>部品:</strong> <span id="edit-inv-part-name"></span></p>
+                    <p class="mb-3"><strong>現在の数量:</strong> <span id="edit-inv-quantity-display"></span></p>
+                    <div class="mb-3">
+                        <label for="edit-inv-min-reorder-level" class="form-label">最低発注レベル:</label>
+                        <input type="number" id="edit-inv-min-reorder-level" class="form-control" min="0">
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit-inv-location-info" class="form-label">保管場所情報:</label>
+                        <input type="text" id="edit-inv-location-info" class="form-control" list="location-list">
+                    </div>
+                    <p id="edit-inventory-message"></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">閉じる</button>
+                    <button type="button" class="btn btn-primary" onclick="updateInventoryItem()">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // 全てのモーダルインスタンスを保持
+        // Store all modal instances
         const modals = {};
         document.addEventListener('DOMContentLoaded', () => {
             document.querySelectorAll('.modal').forEach(modalEl => {
                 modals[modalEl.id] = new bootstrap.Modal(modalEl);
             });
-
-            const addUserModal = document.getElementById('add-user-modal');
-            addUserModal.addEventListener('show.bs.modal', () => {
-                const roleSelect = document.getElementById('new-user-role');
-                if (currentUser.role === 'supplier') {
-                    roleSelect.value = 'shop_user';
-                    roleSelect.disabled = true;
-                    toggleShopSelectForUser('new'); // Ensure shop select is visible
-                } else {
-                    roleSelect.disabled = false;
-                }
-            });
         });
 
         let currentUser = null;
-        document.addEventListener('DOMContentLoaded', checkAuthAndLoadAdmin);
-
         let allShops = [];
+        let allSuppliers = [];
         let allParts = [];
-        let allUsers = [];
         let allCategories = [];
         let allInventoryData = [];
-        let allEmployees = [];
+        let allSupplierEmployees = [];
+        let inventoryLocations = [];
 
         // --- Core Functions ---
+        document.addEventListener('DOMContentLoaded', checkAuthAndLoadAdmin);
+
         async function checkAuthAndLoadAdmin() {
             try {
                 const response = await fetch('/api/auth/status');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const data = await response.json();
-                if (data.loggedIn && (data.user.role === 'admin' || data.user.role === 'supplier')) {
+
+                if (data.loggedIn && (data.user.type === 'admin' || data.user.type === 'supplier')) {
                     currentUser = data.user;
-                    document.getElementById('username-display').textContent = data.user.username;
+                    document.getElementById('username-display').textContent = currentUser.name; // Use name instead of username
+                    
+                    await loadInitialData();
                     setupUIVisibility();
-                    loadAllAdminData();
+                    attachEventListeners();
+                    loadAllAdminData(); // Load remaining data
                 } else {
                     alert('アクセス権限がありません。ログインページに戻ります。');
                     window.location.href = '/login.html';
                 }
             } catch (error) {
-                alert('認証状態の確認中にエラーが発生しました。');
-                console.error('Auth check error:', error);
+                console.error('Authentication check failed:', error);
+                alert(`認証状態の確認中にエラーが発生しました: ${error.message}`);
+                window.location.href = '/login.html';
             }
+        }
+        
+        async function loadInitialData() {
+            // Load data essential for initial UI setup
+            await Promise.all([loadShops(), loadCategories()]);
         }
 
         function setupUIVisibility() {
-            if (currentUser.role === 'supplier') {
-                // Show and configure supplier-specific UI
-                document.getElementById('register-shop-nav').style.display = 'block';
-                const masterDataLink = document.getElementById('master-data-nav-link');
-                masterDataLink.innerHTML = `<i class="bi bi-pencil-square"></i> 登録済みデータ管理`;
+            const userType = currentUser.type;
+            
+            // Admin-only elements
+            document.getElementById('master-suppliers-nav').style.display = userType === 'admin' ? 'block' : 'none';
 
-                // Hide unnecessary tabs for suppliers
-                document.getElementById('master-employees-nav').style.display = 'none';
+            // Supplier-only elements
+            const employeeNav = document.getElementById('master-supplier-employees-nav');
+            const replenishEmployeeGroup = document.getElementById('replenish-employee-group');
+            if (userType === 'supplier') {
+                employeeNav.style.display = 'block';
+                replenishEmployeeGroup.style.display = 'block';
+                document.getElementById('master-data-nav-link').innerHTML = `<i class="bi bi-pencil-square"></i> データ管理`;
                 
-                // Set default active tab for supplier
-                showTab('register-shop');
-                document.getElementById('inventory-management-nav-link').classList.remove('active');
-                document.getElementById('register-shop').classList.add('show', 'active');
-                document.getElementById('inventory-management').classList.remove('show', 'active');
-                document.getElementById('register-shop-nav').querySelector('a').classList.add('active');
-
+                if (allShops.length === 0) {
+                    showTab('master-data');
+                    setTimeout(() => {
+                        const masterTab = document.querySelector('#master-data .nav-tabs .nav-link[href="#master-shops-tab"]');
+                        if(masterTab) new bootstrap.Tab(masterTab).show();
+                    }, 150);
+                } else {
+                     showTab('inventory-management');
+                }
             } else {
-                // Default admin view
-                document.getElementById('register-shop-nav').style.display = 'none';
+                employeeNav.style.display = 'none';
+                replenishEmployeeGroup.style.display = 'none';
+                showTab('inventory-management');
+            }
+        }
+
+        function attachEventListeners() {
+            document.getElementById('replenish-category-select').addEventListener('change', filterPartsForReplenishment);
+            document.getElementById('inventory-category-select').addEventListener('change', filterPartsForInventoryUpdate);
+            document.getElementById('inv-filter-shop').addEventListener('change', filterAllInventory);
+            document.getElementById('inv-filter-part').addEventListener('input', filterAllInventory);
+            document.getElementById('stocktake-shop-select').addEventListener('change', loadStocktakeList);
+        }
+
+        async function loadAllAdminData() {
+            const promises = [
+                loadParts(),
+                loadAllInventory(),
+                loadReorderList(),
+                loadUsageHistory(),
+                loadReplenishmentHistory(),
+                loadInventoryLocations(),
+                loadUncategorizedParts()
+            ];
+
+            if (currentUser.type === 'admin') {
+                promises.push(loadSuppliers());
+            }
+            if (currentUser.type === 'supplier') {
+                promises.push(loadSupplierEmployees());
+            }
+
+            try {
+                await Promise.all(promises);
+            } catch (error) {
+                console.error("Error loading all admin data:", error);
+                showMessage('global-message', 'データの読み込み中にエラーが発生しました。', 'danger');
             }
         }
 
         async function logout() {
-            await fetch('/api/logout', { method: 'POST' });
-            window.location.href = '/login.html';
-        }
-
-        async function registerShopAndUser() {
-            const shopName = document.getElementById('new-shop-name-supplier').value;
-            const username = document.getElementById('new-shop-user-username').value;
-            const password = document.getElementById('new-shop-user-password').value;
-
-            if (!shopName || !username || !password) {
-                showMessage('register-shop-message', '工場名、担当者ユーザー名、パスワードをすべて入力してください。', 'danger');
-                return;
-            }
-
             try {
-                const response = await fetch('/api/supplier/register-shop', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ shopName, username, password })
-                });
-                const result = await response.json();
-                if (response.ok) {
-                    showMessage('register-shop-message', result.message, 'success');
-                    // Clear fields
-                    document.getElementById('new-shop-name-supplier').value = '';
-                    document.getElementById('new-shop-user-username').value = '';
-                    document.getElementById('new-shop-user-password').value = '';
-                    // Reload shops and users to reflect the new data
-                    await loadShops();
-                    await loadUsers();
-                } else {
-                    showMessage('register-shop-message', `エラー: ${result.error}`, 'danger');
-                }
+                await fetch('/api/logout', { method: 'POST' });
+                window.location.href = '/login.html';
             } catch (error) {
-                showMessage('register-shop-message', `通信エラー: ${error.message}`, 'danger');
+                console.error('Logout failed:', error);
             }
         }
 
         function showTab(tabId) {
-            const someTabTriggerEl = document.querySelector(`a[href="#${tabId}"]`)
-            if(someTabTriggerEl) {
-                const tab = new bootstrap.Tab(someTabTriggerEl);
+            const tabTrigger = document.querySelector(`.nav-link[href="#${tabId}"]`);
+            if (tabTrigger) {
+                const tab = new bootstrap.Tab(tabTrigger);
                 tab.show();
             }
         }
-
-        async function loadAllAdminData() {
-            await loadShops();
-            await loadCategories();
-            await loadParts();
-            if (currentUser.role === 'admin' || currentUser.role === 'supplier') {
-                await loadUsers();
+        
+        function showMessage(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.innerHTML = message;
+                element.className = `alert alert-${type} mt-3`;
+                if (type === 'success' || type === 'info') {
+                    setTimeout(() => {
+                        if (element.classList.contains(`alert-${type}`)) {
+                             element.className = '';
+                             element.innerHTML = '';
+                        }
+                    }, 5000);
+                }
             }
-            if (currentUser.role === 'admin') {
-                await loadEmployees();
-            }
-            await loadAllInventory();
-            await loadReorderList();
-            await loadUsageHistory();
-            await loadReplenishmentHistory();
-            await loadInventoryLocations();
-            await loadUncategorizedParts();
         }
 
-        // --- Shop Management ---
+        async function apiRequest(url, options = {}) {
+            try {
+                const response = await fetch(url, options);
+                if (response.status === 204) { 
+                    return null;
+                }
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP error! status: ${response.status}`);
+                }
+                return data;
+            } catch (error) {
+                console.error(`API request to ${url} failed:`, error);
+                throw error;
+            }
+        }
+
+        // --- Supplier Management (Admin only) ---
+        async function loadSuppliers() {
+            if (currentUser.type !== 'admin') return;
+            try {
+                allSuppliers = await apiRequest('/api/admin/suppliers');
+                const tableBody = document.querySelector('#suppliers-table tbody');
+                tableBody.innerHTML = '';
+                allSuppliers.forEach(s => {
+                    const row = tableBody.insertRow();
+                    row.innerHTML = `<td>${s.id}</td><td>${s.name}</td><td>${s.username}</td>
+                        <td>
+                            <button class="btn btn-sm btn-secondary" onclick="openEditSupplierModal(${s.id})">編集</button> 
+                            <button class="btn btn-sm btn-danger" onclick="deleteSupplier(${s.id}, '${s.name}')">削除</button>
+                        </td>`;
+                });
+            } catch (error) {
+                showMessage('add-supplier-message', `部品商の読み込みエラー: ${error.message}`, 'danger');
+            }
+        }
+
+        async function addSupplier() {
+            const name = document.getElementById('new-supplier-name').value;
+            const username = document.getElementById('new-supplier-username').value;
+            const password = document.getElementById('new-supplier-password').value;
+            if (!name || !username || !password) {
+                showMessage('add-supplier-message', '部品商名、ログインID、パスワードは必須です。', 'danger');
+                return;
+            }
+            try {
+                await apiRequest('/api/admin/suppliers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, username, password })
+                });
+                showMessage('add-supplier-message', `部品商「${name}」を追加しました。`, 'success');
+                document.getElementById('new-supplier-name').value = '';
+                document.getElementById('new-supplier-username').value = '';
+                document.getElementById('new-supplier-password').value = '';
+                modals['add-supplier-modal'].hide();
+                loadSuppliers();
+            } catch (error) {
+                showMessage('add-supplier-message', `エラー: ${error.message}`, 'danger');
+            }
+        }
+
+        function openEditSupplierModal(id) {
+            const supplier = allSuppliers.find(s => s.id === id);
+            if (!supplier) return;
+            document.getElementById('edit-supplier-id').value = supplier.id;
+            document.getElementById('edit-supplier-name').value = supplier.name;
+            document.getElementById('edit-supplier-username').value = supplier.username;
+            document.getElementById('edit-supplier-password').value = '';
+            showMessage('edit-supplier-message', '', 'info');
+            modals['edit-supplier-modal'].show();
+        }
+
+        async function updateSupplier() {
+            const id = document.getElementById('edit-supplier-id').value;
+            const name = document.getElementById('edit-supplier-name').value;
+            const username = document.getElementById('edit-supplier-username').value;
+            const password = document.getElementById('edit-supplier-password').value;
+            const payload = { name, username };
+            if (password) {
+                payload.password = password;
+            }
+            try {
+                await apiRequest(`/api/admin/suppliers/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                showMessage('edit-supplier-message', '部品商情報を更新しました。', 'success');
+                setTimeout(() => {
+                    modals['edit-supplier-modal'].hide();
+                    loadSuppliers();
+                }, 1000);
+            } catch (error) {
+                showMessage('edit-supplier-message', `エラー: ${error.message}`, 'danger');
+            }
+        }
+
+        async function deleteSupplier(id, name) {
+            if (confirm(`本当に部品商「${name}」を削除しますか？
+この部品商に紐づくデータがある場合は削除できません。`)) {
+                try {
+                    const data = await apiRequest(`/api/admin/suppliers/${id}`, { method: 'DELETE' });
+                    alert(data.message);
+                    loadSuppliers();
+                } catch (error) {
+                    alert(`エラー: ${error.message}`);
+                }
+            }
+        }
+
+        // --- Supplier Employee Management (Supplier only) ---
+        async function loadSupplierEmployees() {
+            if (currentUser.type !== 'supplier') return;
+            try {
+                allSupplierEmployees = await apiRequest('/api/supplier/employees');
+                const tableBody = document.querySelector('#supplier-employees-table tbody');
+                tableBody.innerHTML = '';
+                allSupplierEmployees.forEach(e => {
+                    const row = tableBody.insertRow();
+                    row.innerHTML = `<td>${e.id}</td><td>${e.name}</td>
+                        <td><span class="badge bg-${e.is_active ? 'success' : 'secondary'}">${e.is_active ? '有効' : '無効'}</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-secondary" onclick="openEditSupplierEmployeeModal(${e.id})">編集</button>
+                        </td>`;
+                });
+                // Populate replenish employee select
+                const employeeSelect = document.getElementById('replenish-employee-select');
+                employeeSelect.innerHTML = '<option value="">-- 担当者を選択 --</option>';
+                allSupplierEmployees.filter(e => e.is_active).forEach(e => {
+                    employeeSelect.innerHTML += `<option value="${e.id}">${e.name}</option>`;
+                });
+
+            } catch (error) {
+                showMessage('add-supplier-employee-message', `担当者の読み込みエラー: ${error.message}`, 'danger');
+            }
+        }
+
+        async function addSupplierEmployee() {
+            const name = document.getElementById('new-supplier-employee-name').value;
+            if (!name) {
+                showMessage('add-supplier-employee-message', '担当者名は必須です。', 'danger');
+                return;
+            }
+            try {
+                await apiRequest('/api/supplier/employees', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                showMessage('add-supplier-employee-message', `担当者「${name}」を追加しました。`, 'success');
+                document.getElementById('new-supplier-employee-name').value = '';
+                modals['add-supplier-employee-modal'].hide();
+                loadSupplierEmployees();
+            } catch (error) {
+                showMessage('add-supplier-employee-message', `エラー: ${error.message}`, 'danger');
+            }
+        }
+
+        function openEditSupplierEmployeeModal(id) {
+            const employee = allSupplierEmployees.find(e => e.id === id);
+            if (!employee) return;
+            document.getElementById('edit-supplier-employee-id').value = employee.id;
+            document.getElementById('edit-supplier-employee-name').value = employee.name;
+            document.getElementById('edit-supplier-employee-is-active').checked = employee.is_active;
+            showMessage('edit-supplier-employee-message', '', 'info');
+            modals['edit-supplier-employee-modal'].show();
+        }
+
+        async function updateSupplierEmployee() {
+            const id = document.getElementById('edit-supplier-employee-id').value;
+            const name = document.getElementById('edit-supplier-employee-name').value;
+            const isActive = document.getElementById('edit-supplier-employee-is-active').checked;
+            try {
+                await apiRequest(`/api/supplier/employees/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, is_active: isActive })
+                });
+                showMessage('edit-supplier-employee-message', '担当者情報を更新しました。', 'success');
+                setTimeout(() => {
+                    modals['edit-supplier-employee-modal'].hide();
+                    loadSupplierEmployees();
+                }, 1000);
+            } catch (error) {
+                showMessage('edit-supplier-employee-message', `エラー: ${error.message}`, 'danger');
+            }
+        }
+
+        // --- Shop Management (Admin and Supplier) ---
         async function loadShops() {
             try {
-                const response = await fetch('/api/admin/shops');
-                allShops = await response.json();
+                allShops = await apiRequest('/api/admin/shops');
                 const tableBody = document.querySelector('#shops-table tbody');
                 tableBody.innerHTML = '';
                 allShops.forEach(shop => {
                     const row = tableBody.insertRow();
-                    row.innerHTML = `<td>${shop.id}</td><td>${shop.name}</td><td><button class="btn btn-sm btn-secondary" onclick="openEditShopModal(${shop.id})">編集</button> <button class="btn btn-sm btn-danger" onclick="deleteShop(${shop.id}, '${shop.name}')">削除</button></td>`;
+                    row.innerHTML = `<td>${shop.id}</td><td>${shop.name}</td><td>${shop.username}</td>
+                        <td>
+                            <button class="btn btn-sm btn-secondary" onclick="openEditShopModal(${shop.id})">編集</button> 
+                            <button class="btn btn-sm btn-danger" onclick="deleteShop(${shop.id}, '${shop.name}')">削除</button>
+                        </td>`;
                 });
-                
-                const shopSelects = [
-                    document.getElementById('new-user-shop-id'), document.getElementById('edit-user-shop-id'), 
-                    document.getElementById('inventory-shop-select'), document.getElementById('filter-shop-id'), 
-                    document.getElementById('inv-filter-shop'), document.getElementById('stocktake-shop-select'), 
-                    document.getElementById('new-employee-shop-id'), document.getElementById('edit-employee-shop-id'),
-                    document.getElementById('replenish-shop-select'), document.getElementById('rh-filter-shop-id')
-                ];
+
+                const shopSelects = document.querySelectorAll('select[id*="shop-select"], select[id*="filter-shop"]');
                 shopSelects.forEach(sel => {
-                    if (!sel) return;
                     const currentValue = sel.value;
-                    const firstOptionHTML = sel.querySelector('option')?.outerHTML || '';
+                    const firstOptionHTML = sel.querySelector('option:first-child')?.outerHTML || '<option value="">すべて</option>';
                     sel.innerHTML = firstOptionHTML;
                     allShops.forEach(shop => {
                         sel.innerHTML += `<option value="${shop.id}">${shop.name}</option>`;
                     });
-                    sel.value = currentValue;
+                    if (Array.from(sel.options).some(opt => opt.value === currentValue)) {
+                        sel.value = currentValue;
+                    }
                 });
             } catch (error) {
                 showMessage('add-shop-message', `工場の読み込みエラー: ${error.message}`, 'danger');
@@ -770,20 +983,29 @@
         }
 
         async function addShop() {
-            const shopName = document.getElementById('new-shop-name').value;
-            if (!shopName) { showMessage('add-shop-message', '工場名を入力してください。', 'danger'); return; }
+            const name = document.getElementById('new-shop-name').value;
+            const username = document.getElementById('new-shop-username').value;
+            const password = document.getElementById('new-shop-password').value;
+            if (!name || !username || !password) {
+                showMessage('add-shop-message', '工場名、ログインID、パスワードは必須です。', 'danger');
+                return;
+            }
             try {
-                const response = await fetch('/api/admin/shops', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: shopName }) });
-                if (response.ok) {
-                    showMessage('add-shop-message', `工場「${shopName}」を追加しました。`, 'success');
-                    document.getElementById('new-shop-name').value = '';
-                    modals['add-shop-modal'].hide();
-                    loadShops();
-                } else {
-                    const data = await response.json();
-                    showMessage('add-shop-message', `エラー: ${data.error}`, 'danger');
-                }
-            } catch (error) { showMessage('add-shop-message', `通信エラー: ${error.message}`, 'danger'); }
+                await apiRequest('/api/admin/shops', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, username, password })
+                });
+                showMessage('add-shop-message', `工場「${name}」を追加しました。`, 'success');
+                document.getElementById('new-shop-name').value = '';
+                document.getElementById('new-shop-username').value = '';
+                document.getElementById('new-shop-password').value = '';
+                modals['add-shop-modal'].hide();
+                await loadShops(); 
+                setupUIVisibility(); 
+            } catch (error) {
+                showMessage('add-shop-message', `エラー: ${error.message}`, 'danger');
+            }
         }
 
         function openEditShopModal(id) {
@@ -791,42 +1013,53 @@
             if (!shop) return;
             document.getElementById('edit-shop-id').value = shop.id;
             document.getElementById('edit-shop-name').value = shop.name;
+            document.getElementById('edit-shop-username').value = shop.username;
+            document.getElementById('edit-shop-password').value = '';
+            showMessage('edit-shop-message', '', 'info');
             modals['edit-shop-modal'].show();
         }
 
         async function updateShop() {
             const id = document.getElementById('edit-shop-id').value;
             const name = document.getElementById('edit-shop-name').value;
+            const username = document.getElementById('edit-shop-username').value;
+            const password = document.getElementById('edit-shop-password').value;
+            const payload = { name, username };
+            if (password) payload.password = password;
             try {
-                const response = await fetch(`/api/admin/shops/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-                if (response.ok) {
-                    showMessage('edit-shop-message', '工場名を更新しました。', 'success');
-                    setTimeout(() => { modals['edit-shop-modal'].hide(); loadShops(); }, 1000);
-                } else {
-                    const data = await response.json();
-                    showMessage('edit-shop-message', `エラー: ${data.error}`, 'danger');
-                }
-            } catch (error) { showMessage('edit-shop-message', `通信エラー: ${error.message}`, 'danger'); }
+                await apiRequest(`/api/admin/shops/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                showMessage('edit-shop-message', '工場情報を更新しました。', 'success');
+                setTimeout(() => {
+                    modals['edit-shop-modal'].hide();
+                    loadShops();
+                }, 1000);
+            } catch (error) {
+                showMessage('edit-shop-message', `エラー: ${error.message}`, 'danger');
+            }
         }
 
         async function deleteShop(id, name) {
-            if (confirm(`本当に工場「${name}」を削除しますか？\nこの工場に所属するユーザーや在庫がある場合は削除できません。`)) {
+            if (confirm(`本当に工場「${name}」を削除しますか？
+この工場に紐づく在庫などがある場合は削除できません。`)) {
                 try {
-                    const response = await fetch(`/api/admin/shops/${id}`, { method: 'DELETE' });
-                    const data = await response.json();
-                    if (response.ok) {
-                        alert(data.message);
-                        loadShops();
-                    } else { alert(`エラー: ${data.error}`); }
-                } catch (error) { alert(`通信エラー: ${error.message}`); }
+                    const data = await apiRequest(`/api/admin/shops/${id}`, { method: 'DELETE' });
+                    alert(data.message);
+                    await loadShops();
+                    setupUIVisibility();
+                } catch (error) {
+                    alert(`エラー: ${error.message}`);
+                }
             }
         }
 
         // --- Part Management ---
         async function loadParts() {
             try {
-                const response = await fetch('/api/admin/parts');
-                allParts = await response.json();
+                allParts = await apiRequest('/api/admin/parts');
                 const tableBody = document.querySelector('#parts-table tbody');
                 tableBody.innerHTML = '';
                 allParts.forEach(part => {
@@ -842,82 +1075,81 @@
                             <button class="btn btn-sm btn-danger" onclick="deletePart(${part.id}, '${part.part_name}')">削除</button>
                         </td>`;
                 });
-
-                const partSelects = [
-                    document.getElementById('inventory-part-select'), 
-                    document.getElementById('filter-part-id'),
-                    document.getElementById('rh-filter-part-id')
-                ];
-                partSelects.forEach(sel => {
-                    if (!sel) return;
-                    const currentValue = sel.value;
-                    const firstOptionHTML = sel.querySelector('option')?.outerHTML || '';
-                    sel.innerHTML = firstOptionHTML;
-                    allParts.forEach(part => {
-                        sel.innerHTML += `<option value="${part.id}">${part.part_name} (${part.part_number})</option>`;
-                    });
-                    sel.value = currentValue;
+                updatePartSelects();
+            } catch (error) {
+                showMessage('add-part-message', `部品の読み込みエラー: ${error.message}`, 'danger');
+            }
+        }
+        
+        function updatePartSelects() {
+            const partSelects = document.querySelectorAll('select[id*="part-select"], select[id*="filter-part"]');
+            partSelects.forEach(sel => {
+                if (sel.id.includes('replenish') || sel.id.includes('inventory')) return; 
+                const currentValue = sel.value;
+                const firstOptionHTML = sel.querySelector('option:first-child')?.outerHTML || '<option value="">すべて</option>';
+                sel.innerHTML = firstOptionHTML;
+                allParts.forEach(part => {
+                    sel.innerHTML += `<option value="${part.id}">${part.part_name} (${part.part_number})</option>`;
                 });
-                filterPartsForReplenishment();
-                filterPartsForInventoryUpdate();
-            } catch (error) { showMessage('add-part-message', `部品の読み込みエラー: ${error.message}`, 'danger'); }
+                if (Array.from(sel.options).some(opt => opt.value === currentValue)) {
+                    sel.value = currentValue;
+                }
+            });
+            filterPartsForReplenishment();
+            filterPartsForInventoryUpdate();
         }
 
         function filterPartsForReplenishment() {
             const categoryId = document.getElementById('replenish-category-select').value;
             const partSelect = document.getElementById('replenish-part-select');
             const currentValue = partSelect.value;
-            
-            partSelect.innerHTML = '<option value="">-- 部品を選択 --</option>'; // デフォルトオプション
-
-            const filteredParts = categoryId 
-                ? allParts.filter(p => p.category_id == categoryId)
-                : allParts;
-
+            partSelect.innerHTML = '<option value="">-- 部品を選択 --</option>';
+            const filteredParts = categoryId ? allParts.filter(p => p.category_id == categoryId) : allParts;
             filteredParts.forEach(part => {
                 partSelect.innerHTML += `<option value="${part.id}">${part.part_name} (${part.part_number})</option>`;
             });
-
-            partSelect.value = currentValue;
+            if (Array.from(partSelect.options).some(opt => opt.value === currentValue)) {
+               partSelect.value = currentValue;
+            }
         }
 
         function filterPartsForInventoryUpdate() {
             const categoryId = document.getElementById('inventory-category-select').value;
             const partSelect = document.getElementById('inventory-part-select');
             const currentValue = partSelect.value;
-            
             partSelect.innerHTML = '<option value="">-- 部品を選択 --</option>';
-
-            const filteredParts = categoryId 
-                ? allParts.filter(p => p.category_id == categoryId)
-                : allParts;
-
+            const filteredParts = categoryId ? allParts.filter(p => p.category_id == categoryId) : allParts;
             filteredParts.forEach(part => {
                 partSelect.innerHTML += `<option value="${part.id}">${part.part_name} (${part.part_number})</option>`;
             });
-
-            partSelect.value = currentValue;
+            if (Array.from(partSelect.options).some(opt => opt.value === currentValue)) {
+               partSelect.value = currentValue;
+            }
         }
 
         async function addPart() {
-            const partNumber = document.getElementById('new-part-number').value;
-            const partName = document.getElementById('new-part-name').value;
-            const categoryId = document.getElementById('new-part-category').value;
-            if (!partNumber || !partName) { showMessage('add-part-message', '品番と部品名を入力してください。', 'danger'); return; }
+            const part_number = document.getElementById('new-part-number').value;
+            const part_name = document.getElementById('new-part-name').value;
+            const category_id = document.getElementById('new-part-category').value;
+            if (!part_number || !part_name) {
+                showMessage('add-part-message', '品番と部品名は必須です。', 'danger');
+                return;
+            }
             try {
-                const response = await fetch('/api/admin/parts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ part_number: partNumber, part_name: partName, category_id: categoryId || null }) });
-                if (response.ok) {
-                    showMessage('add-part-message', `部品「${partName}」を追加しました。`, 'success');
-                    document.getElementById('new-part-number').value = '';
-                    document.getElementById('new-part-name').value = '';
-                    document.getElementById('new-part-category').value = '';
-                    modals['add-part-modal'].hide();
-                    loadParts();
-                } else {
-                    const data = await response.json();
-                    showMessage('add-part-message', `エラー: ${data.error}`, 'danger');
-                }
-            } catch (error) { showMessage('add-part-message', `通信エラー: ${error.message}`, 'danger'); }
+                await apiRequest('/api/admin/parts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ part_number, part_name, category_id: category_id || null })
+                });
+                showMessage('add-part-message', `部品「${part_name}」を追加しました。`, 'success');
+                document.getElementById('new-part-number').value = '';
+                document.getElementById('new-part-name').value = '';
+                document.getElementById('new-part-category').value = '';
+                modals['add-part-modal'].hide();
+                loadParts();
+            } catch (error) {
+                showMessage('add-part-message', `エラー: ${error.message}`, 'danger');
+            }
         }
 
         function openEditPartModal(id) {
@@ -927,6 +1159,7 @@
             document.getElementById('edit-part-number').value = part.part_number;
             document.getElementById('edit-part-name').value = part.part_name;
             document.getElementById('edit-part-category').value = part.category_id || '';
+            showMessage('edit-part-message', '', 'info');
             modals['edit-part-modal'].show();
         }
 
@@ -936,44 +1169,58 @@
             const part_name = document.getElementById('edit-part-name').value;
             const category_id = document.getElementById('edit-part-category').value;
             try {
-                const response = await fetch(`/api/admin/parts/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ part_number, part_name, category_id: category_id || null }) });
-                if (response.ok) {
-                    showMessage('edit-part-message', '部品情報を更新しました。', 'success');
-                    setTimeout(() => { modals['edit-part-modal'].hide(); loadParts(); }, 1000);
-                } else {
-                    const data = await response.json();
-                    showMessage('edit-part-message', `エラー: ${data.error}`, 'danger');
-                }
-            } catch (error) { showMessage('edit-part-message', `通信エラー: ${error.message}`, 'danger'); }
+                await apiRequest(`/api/admin/parts/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ part_number, part_name, category_id: category_id || null })
+                });
+                showMessage('edit-part-message', '部品情報を更新しました。', 'success');
+                setTimeout(() => {
+                    modals['edit-part-modal'].hide();
+                    loadParts();
+                    loadUncategorizedParts();
+                }, 1000);
+            } catch (error) {
+                showMessage('edit-part-message', `エラー: ${error.message}`, 'danger');
+            }
         }
 
         async function deletePart(id, name) {
-            if (confirm(`本当に部品「${name}」を削除しますか？\nこの部品の在庫が残っている場合は削除できません。`)) {
+            if (confirm(`本当に部品「${name}」を削除しますか？
+この部品の在庫が残っている場合は削除できません。`)) {
                 try {
-                    const response = await fetch(`/api/admin/parts/${id}`, { method: 'DELETE' });
-                    const data = await response.json();
-                    if (response.ok) {
-                        alert(data.message);
-                        loadParts();
-                    } else { alert(`エラー: ${data.error}`); }
-                } catch (error) { alert(`通信エラー: ${error.message}`); }
+                    const data = await apiRequest(`/api/admin/parts/${id}`, { method: 'DELETE' });
+                    alert(data.message);
+                    loadParts();
+                } catch (error) {
+                    alert(`エラー: ${error.message}`);
+                }
             }
         }
-        
+
         function toggleAllPartCheckboxes(source) {
             document.querySelectorAll('.part-checkbox').forEach(checkbox => checkbox.checked = source.checked);
         }
 
         async function deleteSelectedParts() {
             const partIds = Array.from(document.querySelectorAll('.part-checkbox:checked')).map(cb => parseInt(cb.value));
-            if (partIds.length === 0) { alert('削除する部品を選択してください。'); return; }
-            if (confirm(`${partIds.length}件の部品を本当に削除しますか？\nいずれかの工場で在庫が残っている部品は削除できません。`)) {
+            if (partIds.length === 0) {
+                alert('削除する部品を選択してください。');
+                return;
+            }
+            if (confirm(`${partIds.length}件の部品を本当に削除しますか？
+いずれかの工場で在庫が残っている部品は削除できません。`)) {
                 try {
-                    const response = await fetch('/api/admin/parts', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partIds }) });
-                    const data = await response.json();
+                    const data = await apiRequest('/api/admin/parts', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ partIds })
+                    });
                     alert(data.message || data.error);
-                    if (response.ok) loadParts();
-                } catch (error) { alert(`通信エラー: ${error.message}`); }
+                    loadParts();
+                } catch (error) {
+                    alert(`通信エラー: ${error.message}`);
+                }
             }
         }
 
@@ -981,31 +1228,27 @@
             const fileInput = document.getElementById('csv-file-input');
             const messageEl = document.getElementById('import-parts-message');
             const file = fileInput.files[0];
-            if (!file) { showMessage('import-parts-message', 'CSVファイルを選択してください。', 'danger'); return; }
+            if (!file) {
+                showMessage('import-parts-message', 'CSVファイルを選択してください。', 'danger');
+                return;
+            }
             const formData = new FormData();
             formData.append('csvFile', file);
             showMessage('import-parts-message', 'インポート処理を実行中...', 'info');
             try {
-                const response = await fetch('/api/admin/parts/csv', { method: 'POST', body: formData });
-                const result = await response.json();
-                if (response.ok) {
-                    showMessage('import-parts-message', `${result.message} ${result.summary || ''}`, 'success');
-                    fileInput.value = '';
-                    modals['import-parts-csv-modal'].hide();
-                    loadParts();
-                    loadCategories();
-                    loadUncategorizedParts();
-                } else {
-                    let errorDetails = result.details ? (Array.isArray(result.details) ? result.details.join('\n') : result.details) : (result.error || '不明なエラー');
-                    showMessage('import-parts-message', `インポート失敗: ${errorDetails}`, 'danger');
-                }
-            } catch (error) { showMessage('import-parts-message', `通信エラー: ${error.message}`, 'danger'); }
+                const result = await apiRequest('/api/admin/parts/csv', { method: 'POST', body: formData });
+                showMessage('import-parts-message', `${result.message} ${result.summary || ''}`, 'success');
+                fileInput.value = '';
+                modals['import-parts-csv-modal'].hide();
+                await Promise.all([loadParts(), loadCategories(), loadUncategorizedParts()]);
+            } catch (error) {
+                 showMessage('import-parts-message', `インポート失敗: ${error.message}`, 'danger');
+            }
         }
 
         async function loadUncategorizedParts() {
             try {
-                const response = await fetch('/api/admin/parts/uncategorized');
-                const parts = await response.json();
+                const parts = await apiRequest('/api/admin/parts/uncategorized');
                 const tableBody = document.querySelector('#uncategorized-parts-table tbody');
                 tableBody.innerHTML = '';
                 if (parts.length === 0) {
@@ -1024,59 +1267,81 @@
                         <td style="min-width: 150px;">${categorySelectHTML}</td>
                         <td><button class="btn btn-sm btn-primary" onclick="assignCategory(${part.id})">保存</button></td>`;
                 });
-            } catch (error) { showMessage('uncategorized-parts-message', `未分類部品の読み込みエラー: ${error.message}`, 'danger'); }
+            } catch (error) {
+                showMessage('uncategorized-parts-message', `未分類部品の読み込みエラー: ${error.message}`, 'danger');
+            }
         }
 
         async function assignCategory(partId) {
             const categoryId = document.getElementById(`uncategorized-category-select-${partId}`).value;
-            if (!categoryId) { showMessage('uncategorized-parts-message', 'カテゴリーを選択してください。', 'danger'); return; }
+            if (!categoryId) {
+                showMessage('uncategorized-parts-message', 'カテゴリーを選択してください。', 'danger');
+                return;
+            }
             try {
-                const response = await fetch(`/api/admin/parts/${partId}/category`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoryId }) });
-                if (!response.ok) throw new Error((await response.json()).error);
+                await apiRequest(`/api/admin/parts/${partId}/category`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ categoryId })
+                });
                 showMessage('uncategorized-parts-message', 'カテゴリーを保存しました。', 'success');
-                loadUncategorizedParts();
-                loadParts(); // Refresh main parts list as well
-            } catch (error) { showMessage('uncategorized-parts-message', `保存エラー: ${error.message}`, 'danger'); }
+                await Promise.all([loadUncategorizedParts(), loadParts()]);
+            } catch (error) {
+                showMessage('uncategorized-parts-message', `保存エラー: ${error.message}`, 'danger');
+            }
         }
 
         // --- Category Management ---
         async function loadCategories() {
             try {
-                const response = await fetch('/api/admin/categories');
-                allCategories = await response.json();
+                allCategories = await apiRequest('/api/admin/categories');
                 const tableBody = document.querySelector('#categories-table tbody');
                 tableBody.innerHTML = '';
                 allCategories.forEach(cat => {
-                    tableBody.insertRow().innerHTML = `<td>${cat.id}</td><td>${cat.name}</td><td><button class="btn btn-sm btn-secondary" onclick="openEditCategoryModal(${cat.id})">編集</button> <button class="btn btn-sm btn-danger" onclick="deleteCategory(${cat.id}, '${cat.name}')">削除</button></td>`;
+                    tableBody.insertRow().innerHTML = `<td>${cat.id}</td><td>${cat.name}</td>
+                        <td>
+                            <button class="btn btn-sm btn-secondary" onclick="openEditCategoryModal(${cat.id})">編集</button> 
+                            <button class="btn btn-sm btn-danger" onclick="deleteCategory(${cat.id}, '${cat.name}')">削除</button>
+                        </td>`;
                 });
-                const categorySelects = [
-                    document.getElementById('new-part-category'), 
-                    document.getElementById('edit-part-category'), 
-                    document.getElementById('replenish-category-select'),
-                    document.getElementById('inventory-category-select')
-                ];
+                
+                const categorySelects = document.querySelectorAll('select[id*="category-select"], select[id*="new-part-category"], select[id*="edit-part-category"]');
                 categorySelects.forEach(sel => {
-                    if (!sel) return;
                     const currentValue = sel.value;
-                    sel.innerHTML = '<option value="">すべてのカテゴリー</option>';
-                    allCategories.forEach(cat => { sel.innerHTML += `<option value="${cat.id}">${cat.name}</option>`; });
-                    sel.value = currentValue;
+                    const firstOptionHTML = sel.querySelector('option:first-child')?.outerHTML || '<option value="">すべてのカテゴリー</option>';
+                    sel.innerHTML = firstOptionHTML;
+                    allCategories.forEach(cat => {
+                        sel.innerHTML += `<option value="${cat.id}">${cat.name}</option>`;
+                    });
+                    if (Array.from(sel.options).some(opt => opt.value === currentValue)) {
+                        sel.value = currentValue;
+                    }
                 });
-            } catch (error) { showMessage('add-category-message', `カテゴリーの読み込みエラー: ${error.message}`, 'danger'); }
+            } catch (error) {
+                showMessage('add-category-message', `カテゴリーの読み込みエラー: ${error.message}`, 'danger');
+            }
         }
 
         async function addCategory() {
-            const catName = document.getElementById('new-category-name').value;
-            if (!catName) { showMessage('add-category-message', 'カテゴリー名を入力してください。', 'danger'); return; }
+            const name = document.getElementById('new-category-name').value;
+            if (!name) {
+                showMessage('add-category-message', 'カテゴリー名を入力してください。', 'danger');
+                return;
+            }
             try {
-                const response = await fetch('/api/admin/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: catName }) });
-                if (response.ok) {
-                    showMessage('add-category-message', `カテゴリー「${catName}」を追加しました。`, 'success');
-                    document.getElementById('new-category-name').value = '';
-                    modals['add-category-modal'].hide();
-                    loadCategories();
-                } else { showMessage('add-category-message', `エラー: ${(await response.json()).error}`, 'danger'); }
-            } catch (error) { showMessage('add-category-message', `通信エラー: ${error.message}`, 'danger'); }
+                await apiRequest('/api/admin/categories', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                showMessage('add-category-message', `カテゴリー「${name}」を追加しました。`, 'success');
+                document.getElementById('new-category-name').value = '';
+                modals['add-category-modal'].hide();
+                await loadCategories();
+                await loadUncategorizedParts();
+            } catch (error) {
+                showMessage('add-category-message', `エラー: ${error.message}`, 'danger');
+            }
         }
 
         function openEditCategoryModal(id) {
@@ -1084,6 +1349,7 @@
             if (!category) return;
             document.getElementById('edit-category-id').value = category.id;
             document.getElementById('edit-category-name').value = category.name;
+            showMessage('edit-category-message', '', 'info');
             modals['edit-category-modal'].show();
         }
 
@@ -1091,480 +1357,398 @@
             const id = document.getElementById('edit-category-id').value;
             const name = document.getElementById('edit-category-name').value;
             try {
-                const response = await fetch(`/api/admin/categories/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-                if (response.ok) {
-                    showMessage('edit-category-message', 'カテゴリー名を更新しました。', 'success');
-                    setTimeout(() => { modals['edit-category-modal'].hide(); loadCategories(); }, 1000);
-                } else { showMessage('edit-category-message', `エラー: ${(await response.json()).error}`, 'danger'); }
-            } catch (error) { showMessage('edit-category-message', `通信エラー: ${error.message}`, 'danger'); }
+                await apiRequest(`/api/admin/categories/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                showMessage('edit-category-message', 'カテゴリー名を更新しました。', 'success');
+                setTimeout(() => {
+                    modals['edit-category-modal'].hide();
+                    loadCategories();
+                }, 1000);
+            } catch (error) {
+                showMessage('edit-category-message', `エラー: ${error.message}`, 'danger');
+            }
         }
 
         async function deleteCategory(id, name) {
-            if (confirm(`本当にカテゴリー「${name}」を削除しますか？\nこのカテゴリーに属する部品がある場合は削除できません。`)) {
+            if (confirm(`本当にカテゴリー「${name}」を削除しますか？
+このカテゴリーに属する部品がある場合は削除できません。`)) {
                 try {
-                    const response = await fetch(`/api/admin/categories/${id}`, { method: 'DELETE' });
-                    const data = await response.json();
-                    if (response.ok) {
-                        alert(data.message);
-                        loadCategories();
-                    } else { alert(`エラー: ${data.error}`); }
-                } catch (error) { alert(`通信エラー: ${error.message}`); }
+                    const data = await apiRequest(`/api/admin/categories/${id}`, { method: 'DELETE' });
+                    alert(data.message);
+                    loadCategories();
+                } catch (error) {
+                    alert(`エラー: ${error.message}`);
+                }
             }
         }
-
-        // --- User Management ---
-        function toggleShopSelectForUser(formType) {
-            const roleSelect = document.getElementById(`${formType}-user-role`);
-            const shopGroup = document.getElementById(`${formType}-user-shop-group`);
-            shopGroup.style.display = roleSelect.value === 'shop_user' ? 'block' : 'none';
-        }
-
-        async function loadUsers() {
-            try {
-                const response = await fetch('/api/admin/users');
-                allUsers = await response.json();
-                const tableBody = document.querySelector('#users-table tbody');
-                tableBody.innerHTML = '';
-                allUsers.forEach(user => {
-                    const shopName = user.shop_id ? allShops.find(s => s.id === user.shop_id)?.name || user.shop_id : 'N/A';
-                    tableBody.insertRow().innerHTML = `<td>${user.id}</td><td>${user.username}</td><td>${user.role}</td><td>${shopName}</td><td><button class="btn btn-sm btn-secondary" onclick="openEditUserModal(${user.id})">編集</button> <button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id}, '${user.username}')">削除</button></td>`;
-                });
-            } catch (error) { showMessage('add-user-message', `ユーザーの読み込みエラー: ${error.message}`, 'danger'); }
-        }
-
-        async function addUser() {
-            const username = document.getElementById('new-username').value;
-            const password = document.getElementById('new-password').value;
-            const role = document.getElementById('new-user-role').value;
-            const shopId = document.getElementById('new-user-shop-id').value;
-            if (!username || !password || !role) { showMessage('add-user-message', 'ユーザー名、パスワード、ロールは必須です。', 'danger'); return; }
-            if (role === 'shop_user' && !shopId) { showMessage('add-user-message', '整備工場ユーザーの場合、所属工場を選択してください。', 'danger'); return; }
-            try {
-                const response = await fetch('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, role, shop_id: role === 'shop_user' ? parseInt(shopId) : null }) });
-                if (response.ok) {
-                    showMessage('add-user-message', `ユーザー「${username}」を追加しました。`, 'success');
-                    document.getElementById('new-username').value = '';
-                    document.getElementById('new-password').value = '';
-                    modals['add-user-modal'].hide();
-                    loadUsers();
-                } else { showMessage('add-user-message', `エラー: ${(await response.json()).error}`, 'danger'); }
-            } catch (error) { showMessage('add-user-message', `通信エラー: ${error.message}`, 'danger'); }
-        }
-
-        function openEditUserModal(userId) {
-            const user = allUsers.find(u => u.id === userId);
-            if (!user) return;
-            document.getElementById('edit-user-id').value = user.id;
-            document.getElementById('edit-username').value = user.username;
-            document.getElementById('edit-user-role').value = user.role;
-            document.getElementById('edit-password').value = '';
-            document.getElementById('edit-user-shop-id').value = user.shop_id || '';
-            
-            const roleSelect = document.getElementById('edit-user-role');
-            if (currentUser.role === 'supplier') {
-                roleSelect.disabled = true;
-            } else {
-                roleSelect.disabled = false;
-            }
-
-            toggleShopSelectForUser('edit');
-            modals['edit-user-modal'].show();
-        }
-
-        async function updateUser() {
-            const userId = document.getElementById('edit-user-id').value;
-            const username = document.getElementById('edit-username').value;
-            const password = document.getElementById('edit-password').value;
-            const role = document.getElementById('edit-user-role').value;
-            const shopId = document.getElementById('edit-user-shop-id').value;
-            const payload = { username, role, shop_id: role === 'shop_user' ? parseInt(shopId) : null };
-            if (password) { payload.password = password; }
-            try {
-                const response = await fetch(`/api/admin/users/${userId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                if (response.ok) {
-                    showMessage('edit-user-message', 'ユーザー情報を更新しました。', 'success');
-                    setTimeout(() => { modals['edit-user-modal'].hide(); loadUsers(); }, 1000);
-                } else { showMessage('edit-user-message', `エラー: ${(await response.json()).error}`, 'danger'); }
-            } catch (error) { showMessage('edit-user-message', `通信エラー: ${error.message}`, 'danger'); }
-        }
-
-        async function deleteUser(userId, username) {
-            if (userId === currentUser.id) { alert('自分自身のアカウントは削除できません。'); return; }
-            if (confirm(`本当にユーザー「${username}」を削除しますか？`)) {
-                try {
-                    const response = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
-                    const data = await response.json();
-                    if (response.ok) {
-                        alert(data.message);
-                        loadUsers();
-                    } else { alert(`エラー: ${data.error}`); }
-                } catch (error) { alert(`通信エラー: ${error.message}`); }
-            }
-        }
-
-        // --- Employee Management ---
-        async function loadEmployees() {
-            try {
-                const response = await fetch('/api/admin/employees');
-                allEmployees = await response.json();
-                const tableBody = document.querySelector('#employees-table tbody');
-                tableBody.innerHTML = '';
-                allEmployees.forEach(employee => {
-                    tableBody.insertRow().innerHTML = `<td>${employee.id}</td><td>${employee.name}</td><td>${employee.shop_name}</td><td>${employee.is_active ? '有効' : '無効'}</td><td><button class="btn btn-sm btn-secondary" onclick="openEditEmployeeModal(${employee.id})">編集</button> <button class="btn btn-sm btn-danger" onclick="deleteEmployee(${employee.id}, '${employee.name}')">削除</button></td>`;
-                });
-            } catch (error) { showMessage('add-employee-message', `従業員の読み込みエラー: ${error.message}`, 'danger'); }
-        }
-
-        async function addEmployee() {
-            const name = document.getElementById('new-employee-name').value;
-            const shopId = document.getElementById('new-employee-shop-id').value;
-            if (!name || !shopId) { showMessage('add-employee-message', '従業員名と所属工場を選択してください。', 'danger'); return; }
-            try {
-                const response = await fetch('/api/admin/employees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, shop_id: parseInt(shopId) }) });
-                if (response.ok) {
-                    showMessage('add-employee-message', `従業員「${name}」を追加しました。`, 'success');
-                    document.getElementById('new-employee-name').value = '';
-                    modals['add-employee-modal'].hide();
-                    loadEmployees();
-                } else { showMessage('add-employee-message', `エラー: ${(await response.json()).error}`, 'danger'); }
-            } catch (error) { showMessage('add-employee-message', `通信エラー: ${error.message}`, 'danger'); }
-        }
-
-        function openEditEmployeeModal(id) {
-            const employee = allEmployees.find(e => e.id === id);
-            if (!employee) return;
-            document.getElementById('edit-employee-id').value = employee.id;
-            document.getElementById('edit-employee-name').value = employee.name;
-            document.getElementById('edit-employee-shop-id').value = employee.shop_id;
-            document.getElementById('edit-employee-is-active').checked = employee.is_active;
-            modals['edit-employee-modal'].show();
-        }
-
-        async function updateEmployee() {
-            const id = document.getElementById('edit-employee-id').value;
-            const name = document.getElementById('edit-employee-name').value;
-            const shop_id = document.getElementById('edit-employee-shop-id').value;
-            const is_active = document.getElementById('edit-employee-is-active').checked ? 1 : 0;
-            try {
-                const response = await fetch(`/api/admin/employees/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, shop_id: parseInt(shop_id), is_active }) });
-                if (response.ok) {
-                    showMessage('edit-employee-message', '従業員情報を更新しました。', 'success');
-                    setTimeout(() => { modals['edit-employee-modal'].hide(); loadEmployees(); }, 1000);
-                } else { showMessage('edit-employee-message', `エラー: ${(await response.json()).error}`, 'danger'); }
-            } catch (error) { showMessage('edit-employee-message', `通信エラー: ${error.message}`, 'danger'); }
-        }
-
-        async function deleteEmployee(id, name) {
-            if (confirm(`本当に従業員「${name}」を削除しますか？`)) {
-                try {
-                    const response = await fetch(`/api/admin/employees/${id}`, { method: 'DELETE' });
-                    const data = await response.json();
-                    if (response.ok) {
-                        alert(data.message);
-                        loadEmployees();
-                    } else { alert(`エラー: ${data.error}`); }
-                } catch (error) { alert(`通信エラー: ${error.message}`); }
-            }
-        }
-
+        
         // --- Inventory Management ---
-        function openReplenishModal(item) {
-            document.getElementById('rfl-shop-id').value = item.shop_id;
-            document.getElementById('rfl-part-id').value = item.part_id;
-            document.getElementById('rfl-shop-name').textContent = item.shop_name;
-            document.getElementById('rfl-part-name').textContent = `${item.part_name} (${item.part_number})`;
+        async function loadAllInventory() {
+            try {
+                allInventoryData = await apiRequest('/api/admin/all-inventory');
+                filterAllInventory();
+            } catch (error) {
+                console.error(`全在庫の読み込みエラー: ${error.message}`);
+                document.querySelector('#all-inventory-table tbody').innerHTML = `<tr><td colspan="7" class="text-danger">在庫データの読み込みに失敗しました。</td></tr>`;
+            }
+        }
+
+        function filterAllInventory() {
+            const shopId = document.getElementById('inv-filter-shop').value;
+            const partFilter = document.getElementById('inv-filter-part').value.toLowerCase();
+            
+            const filteredData = allInventoryData.filter(item => {
+                const shopMatch = !shopId || item.shop_id == shopId;
+                const partMatch = !partFilter || item.part_name.toLowerCase().includes(partFilter) || item.part_number.toLowerCase().includes(partFilter);
+                return shopMatch && partMatch;
+            });
+
+            renderAllInventoryTable(filteredData);
+        }
+
+        function renderAllInventoryTable(data) {
+            const tableBody = document.querySelector('#all-inventory-table tbody');
+            tableBody.innerHTML = '';
+            if (data.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="7">表示する在庫データがありません。</td></tr>';
+                return;
+            }
+            data.forEach(item => {
+                const row = tableBody.insertRow();
+                row.innerHTML = `
+                    <td>${item.shop_name}</td>
+                    <td>${item.part_number}</td>
+                    <td>${item.part_name}</td>
+                    <td>${item.quantity}</td>
+                    <td>${item.min_reorder_level}</td>
+                    <td>${item.location_info || ''}</td>
+                    <td>
+                        <button class="btn btn-sm btn-success" onclick="openReplenishFromListModal(${item.shop_id}, ${item.part_id})">補充</button>
+                        <button class="btn btn-sm btn-secondary" onclick="openEditInventoryModal(${item.shop_id}, ${item.part_id})">修正</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteInventoryItem(${item.shop_id}, ${item.part_id}, '${item.shop_name}', '${item.part_name}')">削除</button>
+                    </td>`;
+            });
+        }
+        
+        function openReplenishFromListModal(shopId, partId) {
+            const shop = allShops.find(s => s.id === shopId);
+            const part = allParts.find(p => p.id === partId);
+            if (!shop || !part) return;
+
+            document.getElementById('rfl-shop-id').value = shopId;
+            document.getElementById('rfl-part-id').value = partId;
+            document.getElementById('rfl-shop-name').textContent = shop.name;
+            document.getElementById('rfl-part-name').textContent = `${part.part_name} (${part.part_number})`;
             document.getElementById('rfl-quantity').value = 1;
+
+            const employeeGroup = document.getElementById('rfl-employee-group');
+            if (currentUser.type === 'supplier') {
+                const employeeSelect = document.getElementById('rfl-employee-select');
+                employeeSelect.innerHTML = '<option value="">-- 担当者を選択 --</option>';
+                allSupplierEmployees.filter(e => e.is_active).forEach(e => {
+                    employeeSelect.innerHTML += `<option value="${e.id}">${e.name}</option>`;
+                });
+                employeeGroup.style.display = 'block';
+            } else {
+                employeeGroup.style.display = 'none';
+            }
+
+            showMessage('rfl-message', '', 'info');
             modals['replenish-from-list-modal'].show();
         }
 
         async function replenishStockFromList() {
             const shopId = document.getElementById('rfl-shop-id').value;
             const partId = document.getElementById('rfl-part-id').value;
-            const quantityAdded = document.getElementById('rfl-quantity').value;
+            const quantity = document.getElementById('rfl-quantity').value;
+            const employeeId = document.getElementById('rfl-employee-select').value;
             
-            await doReplenish(shopId, partId, quantityAdded, 'rfl-message');
-            modals['replenish-from-list-modal'].hide();
+            await replenishStock(shopId, partId, quantity, employeeId, 'rfl-message', () => {
+                modals['replenish-from-list-modal'].hide();
+            });
         }
-
-        async function replenishStock() {
+        
+        async function replenishStockFromForm() {
             const shopId = document.getElementById('replenish-shop-select').value;
             const partId = document.getElementById('replenish-part-select').value;
-            const quantityAdded = document.getElementById('replenish-quantity').value;
-            await doReplenish(shopId, partId, quantityAdded, 'replenish-message');
-        }
-
-        async function doReplenish(shopId, partId, quantityAdded, messageElementId) {
-            if (!shopId || !partId || !quantityAdded) {
-                showMessage(messageElementId, '工場、部品、補充数量をすべて選択・入力してください。', 'danger');
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/admin/inventory/replenish', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        shop_id: parseInt(shopId),
-                        part_id: parseInt(partId),
-                        quantity_added: parseInt(quantityAdded)
-                    })
-                });
-                const result = await response.json();
-                if (response.ok) {
-                    showMessage(messageElementId, `${result.message} 新しい在庫数: ${result.new_quantity}`, 'success');
-                    loadAllInventory();
-                    loadReorderList();
-                    loadReplenishmentHistory();
-                } else {
-                    showMessage(messageElementId, `エラー: ${result.error || result.details}`, 'danger');
-                }
-            } catch (error) {
-                showMessage(messageElementId, `通信エラー: ${error.message}`, 'danger');
-            }
-        }
-
-        async function loadStocktakeList() {
-            const shopId = document.getElementById('stocktake-shop-select').value;
-            const stocktakeArea = document.getElementById('stocktake-area');
-            const tableBody = document.querySelector('#stocktake-table tbody');
-            if (!shopId) { stocktakeArea.classList.add('d-none'); return; }
-            stocktakeArea.classList.remove('d-none');
-            tableBody.innerHTML = '<tr><td colspan="6">在庫を読み込み中...</td></tr>';
-            try {
-                const response = await fetch(`/api/shops/${shopId}/inventory`);
-                if (!response.ok) throw new Error('在庫の取得に失敗しました');
-                const inventory = await response.json();
-                tableBody.innerHTML = '';
-                if (inventory.length === 0) { tableBody.innerHTML = '<tr><td colspan="6">この工場には在庫がありません。</td></tr>'; return; }
-                inventory.forEach(item => {
-                    const row = tableBody.insertRow();
-                    row.dataset.partId = item.id;
-                    const systemStock = item.quantity;
-                    row.innerHTML = `
-                        <td>${item.part_number}</td>
-                        <td>${item.part_name}</td>
-                        <td class="system-stock">${systemStock}</td>
-                        <td><input type="number" class="form-control form-control-sm actual-stock-input" value="${systemStock}" min="0"></td>
-                        <td class="difference fw-bold">0</td>
-                        <td class="analysis-cell"></td>`;
-                    
-                    const input = row.querySelector('.actual-stock-input');
-                    input.addEventListener('input', (e) => {
-                        let actualStock = parseInt(e.target.value, 10);
-                        if (isNaN(actualStock)) { actualStock = systemStock; } // Handle empty/invalid input
-
-                        const diff = actualStock - systemStock;
-                        const diffCell = row.querySelector('.difference');
-                        diffCell.textContent = diff;
-                        diffCell.className = `difference fw-bold ${diff === 0 ? '' : (diff > 0 ? 'text-primary' : 'text-danger')}`;
-                        
-                        const analysisCell = row.querySelector('.analysis-cell');
-                        if (diff !== 0) {
-                            if (!analysisCell.querySelector('button')) {
-                                const analysisBtn = document.createElement('button');
-                                analysisBtn.className = 'btn btn-sm btn-info';
-                                analysisBtn.textContent = '分析';
-                                analysisBtn.onclick = () => openAnalysisModal(item.id, shopId, systemStock, actualStock);
-                                analysisCell.innerHTML = '';
-                                analysisCell.appendChild(analysisBtn);
-                            }
-                        } else {
-                            analysisCell.innerHTML = '';
-                        }
-                    });
-                });
-            } catch (error) { tableBody.innerHTML = `<tr><td colspan="6" class="text-danger">${error.message}</td></tr>`; }
-        }
-
-        async function updateStocktake() {
-            const shopId = document.getElementById('stocktake-shop-select').value;
-            if (!shopId) { showMessage('stocktake-message', '工場が選択されていません。', 'danger'); return; }
-            if (!confirm('表示されている実在庫数でシステム在庫を上書きします。よろしいですか？\nこの操作は元に戻せません。')) return;
-            const stocktakeData = Array.from(document.querySelectorAll('#stocktake-table tbody tr')).map(row => {
-                const partId = row.dataset.partId;
-                const actualQuantityInput = row.querySelector('.actual-stock-input');
-                return partId && actualQuantityInput ? { part_id: parseInt(partId, 10), actual_quantity: parseInt(actualQuantityInput.value, 10) } : null;
-            }).filter(Boolean);
-            showMessage('stocktake-message', '在庫更新中...', 'info');
-            try {
-                const response = await fetch('/api/admin/inventory/stocktake', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shop_id: parseInt(shopId), stocktakeData }) });
-                const result = await response.json();
-                if (response.ok) {
-                    showMessage('stocktake-message', result.message, 'success');
-                    loadStocktakeList();
-                    loadAllInventory();
-                    loadReorderList();
-                } else { showMessage('stocktake-message', `エラー: ${result.error}`, 'danger'); }
-            } catch (error) { showMessage('stocktake-message', `通信エラー: ${error.message}`, 'danger'); }
-        }
-
-        async function loadInventoryLocations() {
-            try {
-                const response = await fetch('/api/admin/inventory/locations');
-                const locations = await response.json();
-                const datalist = document.getElementById('location-list');
-                datalist.innerHTML = '';
-                locations.forEach(loc => { datalist.innerHTML += `<option value="${loc}">`; });
-            } catch (error) { console.error('Failed to load inventory locations:', error); }
-        }
-
-        async function loadAllInventory() {
-            try {
-                const response = await fetch('/api/admin/all-inventory');
-                allInventoryData = await response.json();
-                renderAllInventoryTable(allInventoryData);
-            } catch (error) { showMessage('update-inventory-message', `全在庫の読み込みエラー: ${error.message}`, 'danger'); }
-        }
-
-        function renderAllInventoryTable(inventory) {
-            const tableBody = document.querySelector('#all-inventory-table tbody');
-            tableBody.innerHTML = '';
-            const getStockStatusInfo = (quantity, min_reorder_level) => {
-                if (quantity <= 0) return { className: 'stock-danger', text: quantity };
-                if (quantity <= min_reorder_level) return { className: 'stock-danger', text: quantity };
-                if (quantity <= min_reorder_level * 1.5) return { className: 'stock-warning', text: quantity };
-                return { className: 'stock-safe', text: quantity };
-            };
-            inventory.forEach(item => {
-                const statusInfo = getStockStatusInfo(item.quantity, item.min_reorder_level);
-                const row = tableBody.insertRow();
-
-                row.innerHTML = `
-                    <td>${item.shop_name}</td>
-                    <td>${item.part_number}</td>
-                    <td>${item.part_name}</td>
-                    <td><span class="stock-badge ${statusInfo.className}">${statusInfo.text}</span></td>
-                    <td>${item.min_reorder_level}</td>
-                    <td>${item.location_info}</td>
-                    <td></td>`; // Action cell placeholder
-
-                const actionsCell = row.cells[6];
-
-                const editButton = document.createElement('button');
-                editButton.className = 'btn btn-sm btn-secondary';
-                editButton.textContent = '編集';
-                editButton.onclick = () => {
-                    editInventory(JSON.stringify(item));
-                };
-
-                const replenishButton = document.createElement('button');
-                replenishButton.className = 'btn btn-sm btn-info ms-1';
-                replenishButton.textContent = '補充';
-                replenishButton.onclick = () => {
-                    openReplenishModal(item);
-                };
-                
-                const deleteButton = document.createElement('button');
-                deleteButton.className = 'btn btn-sm btn-danger ms-1';
-                deleteButton.textContent = '削除';
-                deleteButton.onclick = () => {
-                    deleteInventory(item.shop_id, item.part_id, item.shop_name, item.part_name);
-                };
-
-                actionsCell.appendChild(editButton);
-                actionsCell.appendChild(replenishButton);
-                actionsCell.appendChild(deleteButton);
+            const quantity = document.getElementById('replenish-quantity').value;
+            const employeeId = document.getElementById('replenish-employee-select').value;
+            
+            await replenishStock(shopId, partId, quantity, employeeId, 'replenish-message', () => {
+                 // Clear form
+                document.getElementById('replenish-part-select').value = '';
+                document.getElementById('replenish-quantity').value = 1;
             });
         }
 
-        function filterAllInventory() {
-            const shopId = document.getElementById('inv-filter-shop').value;
-            const partFilter = document.getElementById('inv-filter-part').value.toLowerCase();
-            const filteredData = allInventoryData.filter(item => 
-                (!shopId || item.shop_id === parseInt(shopId)) &&
-                (!partFilter || item.part_name.toLowerCase().includes(partFilter) || item.part_number.toLowerCase().includes(partFilter))
-            );
-            renderAllInventoryTable(filteredData);
-        }
-
-        function editInventory(itemString) {
-            const item = JSON.parse(itemString);
-            document.getElementById('inventory-shop-select').value = item.shop_id;
-            
-            const part = allParts.find(p => p.id === item.part_id);
-            if (part && part.category_id) {
-                document.getElementById('inventory-category-select').value = part.category_id;
+        async function replenishStock(shopId, partId, quantity, employeeId, messageElId, callback) {
+             if (!shopId || !partId || !quantity) {
+                showMessage(messageElId, '工場、部品、数量は必須です。', 'danger');
+                return;
             }
-            filterPartsForInventoryUpdate();
+            if (currentUser.type === 'supplier' && !employeeId) {
+                showMessage(messageElId, '補充担当者を選択してください。', 'danger');
+                return;
+            }
 
-            document.getElementById('inventory-part-select').value = item.part_id;
-            document.getElementById('inventory-quantity').value = item.quantity;
-            document.getElementById('inventory-min-reorder-level').value = item.min_reorder_level;
-            document.getElementById('inventory-location-info').value = item.location_info;
-            const invTab = new bootstrap.Tab(document.querySelector('a[href="#inv-update-tab"]'));
-            invTab.show();
-        }
+            const body = {
+                shop_id: shopId,
+                part_id: partId,
+                quantity_added: quantity, // Correct key name
+                performed_by_supplier_employee_id: currentUser.type === 'supplier' ? employeeId : null // Correct key name
+            };
 
-        async function deleteInventory(shopId, partId, shopName, partName) {
-            if (!confirm(`【確認】\n\n工場: ${shopName}\n部品: ${partName}\n\nこの在庫情報を完全に削除します。よろしいですか？`)) return;
             try {
-                const response = await fetch('/api/admin/inventory', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shop_id: shopId, part_id: partId }) });
-                const result = await response.json();
-                if (response.ok) {
-                    alert(result.message);
-                    loadAllInventory();
-                } else { alert(`エラー: ${result.error}`); }
-            } catch (error) { alert(`通信エラー: ${error.message}`); }
+                await apiRequest('/api/admin/inventory/replenish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                showMessage(messageElId, '在庫を補充しました。', 'success');
+                await Promise.all([loadAllInventory(), loadReplenishmentHistory()]);
+                if (callback) callback();
+            } catch (error) {
+                showMessage(messageElId, `補充エラー: ${error.message}`, 'danger');
+            }
         }
-
-        async function updateInventory() {
-            const shopId = document.getElementById('inventory-shop-select').value;
-            const partId = document.getElementById('inventory-part-select').value;
-            const quantity = parseInt(document.getElementById('inventory-quantity').value);
-            const minReorderLevel = parseInt(document.getElementById('inventory-min-reorder-level').value);
-            const locationInfo = document.getElementById('inventory-location-info').value;
-            if (!shopId || !partId || isNaN(quantity) || isNaN(minReorderLevel)) { showMessage('update-inventory-message', '工場、部品、数量、最低発注レベルは必須です。', 'danger'); return; }
-            try {
-                const response = await fetch('/api/admin/inventory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shop_id: parseInt(shopId), part_id: parseInt(partId), quantity, min_reorder_level: minReorderLevel, location_info: locationInfo }) });
-                if (response.ok) {
-                    showMessage('update-inventory-message', `在庫を更新しました。`, 'success');
-                    loadAllInventory();
-                    loadInventoryLocations();
-                } else { showMessage('update-inventory-message', `エラー: ${(await response.json()).error}`, 'danger'); }
-            } catch (error) { showMessage('update-inventory-message', `通信エラー: ${error.message}`, 'danger'); }
-        }
-
+        
         // --- Reports ---
         async function loadReorderList() {
             try {
-                const response = await fetch('/api/admin/reorder-list');
-                const reorderList = await response.json();
+                const data = await apiRequest('/api/admin/reorder-list');
                 const tableBody = document.querySelector('#reorder-list-table tbody');
                 tableBody.innerHTML = '';
-                if (reorderList.length === 0) { tableBody.innerHTML = '<tr><td colspan="6">発注が必要な部品はありません。</td></tr>'; return; }
-                reorderList.forEach(item => {
-                    tableBody.insertRow().innerHTML = `<td>${item.shop_name}</td><td>${item.part_number}</td><td>${item.part_name}</td><td>${item.quantity}</td><td>${item.min_reorder_level}</td><td class="text-danger fw-bold">${item.shortage}</td>`;
+                if (data.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="6">発注が必要な部品はありません。</td></tr>';
+                    return;
+                }
+                data.forEach(item => {
+                    const row = tableBody.insertRow();
+                    const shortage = item.min_reorder_level - item.quantity;
+                    row.innerHTML = `
+                        <td>${item.shop_name}</td>
+                        <td>${item.part_number}</td>
+                        <td>${item.part_name}</td>
+                        <td>${item.quantity}</td>
+                        <td>${item.min_reorder_level}</td>
+                        <td>${shortage > 0 ? shortage : 0}</td>`;
                 });
-            } catch (error) { document.querySelector('#reorder-list-table tbody').innerHTML = '<tr><td colspan="6" class="text-danger">発注リストの読み込みエラー</td></tr>'; }
+            } catch (error) {
+                document.querySelector('#reorder-list-table tbody').innerHTML = `<tr><td colspan="6" class="text-danger">発注リストの読み込みに失敗しました。</td></tr>`;
+            }
         }
-
         async function loadUsageHistory() {
             const params = new URLSearchParams({
                 startDate: document.getElementById('filter-start-date').value,
                 endDate: document.getElementById('filter-end-date').value,
                 shopId: document.getElementById('filter-shop-id').value,
                 partId: document.getElementById('filter-part-id').value,
-            });
-            const tableBody = document.querySelector('#usage-history-table tbody');
-            tableBody.innerHTML = '<tr><td colspan="7">読み込み中...</td></tr>';
+            }).toString();
             try {
-                const response = await fetch(`/api/admin/all-usage-history?${params.toString()}`);
-                const history = await response.json();
+                const data = await apiRequest(`/api/admin/all-usage-history?${params}`);
+                const tableBody = document.querySelector('#usage-history-table tbody');
                 tableBody.innerHTML = '';
-                if (history.length === 0) { tableBody.innerHTML = '<tr><td colspan="7">該当する履歴はありません。</td></tr>'; return; }
-                history.forEach(item => {
+                if (data.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="6">該当する使用履歴はありません。</td></tr>';
+                    return;
+                }
+                data.forEach(item => {
                     const row = tableBody.insertRow();
-                    if (item.status === 'cancelled') row.classList.add('text-muted', 'text-decoration-line-through');
                     row.innerHTML = `
                         <td>${item.shop_name}</td>
                         <td>${item.part_number}</td>
                         <td>${item.part_name}</td>
-                        <td>${new Date(item.usage_time).toLocaleString()}</td>
-                        <td>${item.employee_name}</td>
-                        <td class="${item.status === 'cancelled' ? 'text-danger' : ''}">${item.status === 'cancelled' ? '取消済' : '使用中'}</td>
+                        <td>${new Date(item.used_at).toLocaleString()}</td>
+                        <td>${item.employee_name || 'N/A'}</td>
                         <td>${item.cancellation_reason || ''}</td>`;
                 });
-            } catch (error) { alert(`使用履歴の読み込みエラー: ${error.message}`); }
+            } catch (error) {
+                 document.querySelector('#usage-history-table tbody').innerHTML = `<tr><td colspan="6" class="text-danger">使用履歴の読み込みに失敗しました。</td></tr>`;
+            }
+        }
+        async function loadReplenishmentHistory() {
+            const params = new URLSearchParams({
+                startDate: document.getElementById('rh-filter-start-date').value,
+                endDate: document.getElementById('rh-filter-end-date').value,
+                shopId: document.getElementById('rh-filter-shop-id').value,
+                partId: document.getElementById('rh-filter-part-id').value,
+            }).toString();
+            try {
+                const data = await apiRequest(`/api/admin/replenishment-history?${params}`);
+                const tableBody = document.querySelector('#replenishment-history-table tbody');
+                tableBody.innerHTML = '';
+                if (data.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="6">該当する補充履歴はありません。</td></tr>';
+                    return;
+                }
+                data.forEach(item => {
+                    const row = tableBody.insertRow();
+                    row.innerHTML = `
+                        <td>${new Date(item.replenished_at).toLocaleString()}</td>
+                        <td>${item.shop_name}</td>
+                        <td>${item.part_number}</td>
+                        <td>${item.part_name}</td>
+                        <td>${item.quantity}</td>
+                        <td>${item.supplier_employee_name || 'N/A'}</td>`;
+                });
+            } catch (error) {
+                document.querySelector('#replenishment-history-table tbody').innerHTML = `<tr><td colspan="6" class="text-danger">補充履歴の読み込みに失敗しました。</td></tr>`;
+            }
+        }
+        async function loadInventoryLocations() {
+            try {
+                inventoryLocations = await apiRequest('/api/admin/inventory/locations');
+                const datalist = document.getElementById('location-list');
+                datalist.innerHTML = '';
+                inventoryLocations.forEach(loc => {
+                    datalist.innerHTML += `<option value="${loc.location_info}">`;
+                });
+            } catch (error) {
+                console.error('Failed to load inventory locations:', error);
+            }
+        }
+        async function updateInventory() {
+            const shop_id = document.getElementById('inventory-shop-select').value;
+            const part_id = document.getElementById('inventory-part-select').value;
+            const quantity = document.getElementById('inventory-quantity').value;
+            const min_reorder_level = document.getElementById('inventory-min-reorder-level').value;
+            const location_info = document.getElementById('inventory-location-info').value;
+
+            if (!shop_id || !part_id) {
+                showMessage('update-inventory-message', '工場と部品を選択してください。', 'danger');
+                return;
+            }
+            try {
+                await apiRequest('/api/admin/inventory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shop_id, part_id, quantity, min_reorder_level, location_info })
+                });
+                showMessage('update-inventory-message', '在庫情報を更新しました。', 'success');
+                loadAllInventory();
+            } catch (error) {
+                showMessage('update-inventory-message', `更新エラー: ${error.message}`, 'danger');
+            }
+        }
+        async function loadStocktakeList() {
+            const shopId = document.getElementById('stocktake-shop-select').value;
+            const stocktakeArea = document.getElementById('stocktake-area');
+            const tableBody = document.querySelector('#stocktake-table tbody');
+            
+            if (!shopId) {
+                stocktakeArea.classList.add('d-none');
+                return;
+            }
+            
+            try {
+                const data = await apiRequest(`/api/shops/${shopId}/inventory`);
+                tableBody.innerHTML = '';
+                if (data.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="6">この工場の在庫情報はありません。</td></tr>';
+                } else {
+                    data.forEach(item => {
+                        const row = tableBody.insertRow();
+                        row.dataset.partId = item.part_id;
+                        row.innerHTML = `
+                            <td>${item.part_number}</td>
+                            <td>${item.part_name}</td>
+                            <td class="system-qty">${item.quantity}</td>
+                            <td><input type="number" class="form-control form-control-sm actual-qty" value="${item.quantity}" min="0"></td>
+                            <td class="discrepancy">0</td>
+                            <td><button class="btn btn-sm btn-info" onclick="analyzeDiscrepancy(${item.part_id}, ${shopId})">分析</button></td>`;
+                    });
+                }
+                stocktakeArea.classList.remove('d-none');
+            } catch (error) {
+                showMessage('stocktake-message', `棚卸しリストの読み込みエラー: ${error.message}`, 'danger');
+                stocktakeArea.classList.add('d-none');
+            }
+        }
+        
+        document.querySelector('#stocktake-table').addEventListener('input', (e) => {
+            if (e.target.classList.contains('actual-qty')) {
+                const row = e.target.closest('tr');
+                const systemQty = parseInt(row.querySelector('.system-qty').textContent);
+                const actualQty = parseInt(e.target.value);
+                const discrepancyCell = row.querySelector('.discrepancy');
+                const discrepancy = actualQty - systemQty;
+                discrepancyCell.textContent = discrepancy;
+                discrepancyCell.style.color = discrepancy === 0 ? 'black' : 'red';
+            }
+        });
+
+        async function updateStocktake() {
+            const shopId = document.getElementById('stocktake-shop-select').value;
+            const updates = [];
+            document.querySelectorAll('#stocktake-table tbody tr').forEach(row => {
+                if (row.dataset.partId) {
+                    const partId = row.dataset.partId;
+                    const actualQuantity = row.querySelector('.actual-qty').value;
+                    updates.push({ part_id: partId, quantity: actualQuantity });
+                }
+            });
+
+            if (updates.length === 0) {
+                showMessage('stocktake-message', '更新するデータがありません。', 'info');
+                return;
+            }
+
+            try {
+                await apiRequest('/api/admin/inventory/stocktake', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shop_id: shopId, updates })
+                });
+                showMessage('stocktake-message', '棚卸し結果を反映し、在庫を更新しました。', 'success');
+                loadAllInventory();
+                loadStocktakeList(); // Refresh the list
+            } catch (error) {
+                showMessage('stocktake-message', `更新エラー: ${error.message}`, 'danger');
+            }
+        }
+        
+        async function analyzeDiscrepancy(partId, shopId) {
+            // This is a placeholder for a more detailed analysis feature.
+            // For now, it can just show recent history for that part.
+            const modalBody = document.getElementById('analysis-modal-body');
+            modalBody.innerHTML = '<p>分析データを読み込み中...</p>';
+            modals['analysis-modal'].show();
+            
+            try {
+                const [usage, replenishment] = await Promise.all([
+                    apiRequest(`/api/reports/usage?partId=${partId}&shopId=${shopId}`),
+                    apiRequest(`/api/reports/replenishment?partId=${partId}&shopId=${shopId}`)
+                ]);
+
+                let html = '<h5>最近の使用履歴</h5>';
+                if(usage.length > 0) {
+                    html += '<ul class="list-group mb-3">';
+                    usage.slice(0, 5).forEach(u => {
+                        html += `<li class="list-group-item">${new Date(u.used_at).toLocaleString()}: ${u.employee_name || '不明'}が使用 ${u.cancellation_reason ? `(取消: ${u.cancellation_reason})` : ''}</li>`;
+                    });
+                    html += '</ul>';
+                } else {
+                    html += '<p>最近の使用履歴はありません。</p>';
+                }
+
+                html += '<h5>最近の補充履歴</h5>';
+                if(replenishment.length > 0) {
+                    html += '<ul class="list-group">';
+                    replenishment.slice(0, 5).forEach(r => {
+                        html += `<li class="list-group-item">${new Date(r.replenished_at).toLocaleString()}: ${r.quantity}個補充 (${r.supplier_employee_name || '不明'})</li>`;
+                    });
+                    html += '</ul>';
+                } else {
+                    html += '<p>最近の補充履歴はありません。</p>';
+                }
+                modalBody.innerHTML = html;
+
+            } catch (error) {
+                modalBody.innerHTML = `<p class="text-danger">分析データの読み込みに失敗しました: ${error.message}</p>`;
+            }
         }
 
         function exportUsageHistoryCSV() {
@@ -1573,10 +1757,9 @@
                 endDate: document.getElementById('filter-end-date').value,
                 shopId: document.getElementById('filter-shop-id').value,
                 partId: document.getElementById('filter-part-id').value,
-            });
-            window.location.href = `/api/admin/all-usage-history/csv?${params.toString()}`;
+            }).toString();
+            window.location.href = `/api/reports/usage/csv?${params}`;
         }
-
         function clearReportFilters() {
             document.getElementById('filter-start-date').value = '';
             document.getElementById('filter-end-date').value = '';
@@ -1584,44 +1767,15 @@
             document.getElementById('filter-part-id').value = '';
             loadUsageHistory();
         }
-
-        async function loadReplenishmentHistory() {
-            const params = new URLSearchParams({
-                startDate: document.getElementById('rh-filter-start-date').value,
-                endDate: document.getElementById('rh-filter-end-date').value,
-                shopId: document.getElementById('rh-filter-shop-id').value,
-                partId: document.getElementById('rh-filter-part-id').value,
-            });
-            const tableBody = document.querySelector('#replenishment-history-table tbody');
-            tableBody.innerHTML = '<tr><td colspan="6">読み込み中...</td></tr>';
-            try {
-                const response = await fetch(`/api/admin/replenishment-history?${params.toString()}`);
-                const history = await response.json();
-                tableBody.innerHTML = '';
-                if (history.length === 0) { tableBody.innerHTML = '<tr><td colspan="6">該当する履歴はありません。</td></tr>'; return; }
-                history.forEach(item => {
-                    const row = tableBody.insertRow();
-                    row.innerHTML = `
-                        <td>${new Date(item.replenished_at).toLocaleString()}</td>
-                        <td>${item.shop_name}</td>
-                        <td>${item.part_number}</td>
-                        <td>${item.part_name}</td>
-                        <td>${item.quantity_added}</td>
-                        <td>${item.user_name}</td>`;
-                });
-            } catch (error) { alert(`補充履歴の読み込みエラー: ${error.message}`); }
-        }
-
         function exportReplenishmentHistoryCSV() {
-            const params = new URLSearchParams({
+             const params = new URLSearchParams({
                 startDate: document.getElementById('rh-filter-start-date').value,
                 endDate: document.getElementById('rh-filter-end-date').value,
                 shopId: document.getElementById('rh-filter-shop-id').value,
                 partId: document.getElementById('rh-filter-part-id').value,
-            });
-            window.location.href = `/api/admin/replenishment-history/csv?${params.toString()}`;
+            }).toString();
+            window.location.href = `/api/reports/replenishment/csv?${params}`;
         }
-
         function clearReplenishmentHistoryFilters() {
             document.getElementById('rh-filter-start-date').value = '';
             document.getElementById('rh-filter-end-date').value = '';
@@ -1630,117 +1784,69 @@
             loadReplenishmentHistory();
         }
 
-        async function openAnalysisModal(partId, shopId, systemStock, actualStock) {
-            const modalBody = document.getElementById('analysis-modal-body');
-            modalBody.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
-            modals['analysis-modal'].show();
+        async function deleteInventoryItem(shopId, partId, shopName, partName) {
+            if (!confirm(`【確認】\n\n工場「${shopName}」の在庫から\n部品「${partName}」\n\nを削除します。よろしいですか？\nこの操作は元に戻せません。`)) {
+                return;
+            }
 
             try {
-                const response = await fetch('/api/admin/stocktake-analysis', { 
-                    method: 'POST', 
-                    headers: { 'Content-Type': 'application/json' }, 
-                    body: JSON.stringify({ part_id: partId, shop_id: shopId })
+                await apiRequest('/api/admin/inventory', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shop_id: shopId, part_id: partId })
                 });
-                const data = await response.json();
-                if (!response.ok) throw new Error(data.error || '分析データの取得に失敗しました');
+                showMessage('global-message', `「${shopName}」から「${partName}」を削除しました。`, 'success');
+                loadAllInventory(); // Refresh the inventory list
+            } catch (error) {
+                showMessage('global-message', `在庫の削除中にエラーが発生しました: ${error.message}`, 'danger');
+            }
+        }
 
-                const { summary, details } = data;
-                const physicalDifference = actualStock - systemStock;
-                const internalDifference = systemStock - summary.calculated_stock;
+        function openEditInventoryModal(shopId, partId) {
+            const item = allInventoryData.find(i => i.shop_id === shopId && i.part_id === partId);
+            if (!item) {
+                alert('対象の在庫データが見つかりません。');
+                return;
+            }
 
-                let analysisHTML = `
-                    <h5>1. 今回の棚卸しで見つかった「物理的な差異」</h5>
-                    <p>システムが認識していた在庫と、実際に数えた在庫の差です。</p>
-                    <ul class="list-group mb-3">
-                        <li class="list-group-item d-flex justify-content-between align-items-center">システム上の在庫数 <span class="badge bg-secondary rounded-pill">${systemStock}</span></li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center">実際の在庫数（今回入力） <span class="badge bg-secondary rounded-pill">${actualStock}</span></li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center fw-bold">物理的な差異 <span class="badge bg-${physicalDifference === 0 ? 'success' : 'danger'} rounded-pill">${physicalDifference}</span></li>
-                    </ul>
+            const modalElement = document.getElementById('edit-inventory-modal');
+            modalElement.dataset.originalQuantity = item.quantity; // Store original quantity
 
-                    <h5>2. 「システム内部」の記録整合性チェック</h5>
-                    <p>分析期間: ${new Date(summary.base_time).toLocaleString()} 〜 現在</p>
-                    <ul class="list-group mb-3">
-                        <li class="list-group-item d-flex justify-content-between align-items-center">[A] 期間開始時の在庫 <span class="badge bg-secondary rounded-pill">${summary.base_quantity}</span></li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center">[B] 期間中の補充記録 <h6 class="mb-0"><span class="badge bg-primary rounded-pill clickable-badge" onclick="toggleDetails('replenishment-details')" title="クリックして詳細を表示">+${summary.total_replenished} <i class="bi bi-list-ul"></i></span></h6></li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center">[C] 期間中の使用記録 <h6 class="mb-0"><span class="badge bg-warning text-dark rounded-pill clickable-badge" onclick="toggleDetails('usage-details')" title="クリックして詳細を表示">-${summary.total_used} (取消: +${summary.total_cancelled}) <i class="bi bi-list-ul"></i></span></h6></li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center">[D] 記録からの理論在庫 (A+B-C) <span class="badge bg-secondary rounded-pill">${summary.calculated_stock}</span></li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center">[E] 今回のシステム在庫 <span class="badge bg-secondary rounded-pill">${systemStock}</span></li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center fw-bold">システム内部差異 (E-D) <span class="badge bg-${internalDifference === 0 ? 'success' : 'danger'} rounded-pill">${internalDifference}</span></li>
-                    </ul>
-                    
-                    <h5>総合分析</h5>
-                `;
+            document.getElementById('edit-inv-shop-id').value = item.shop_id;
+            document.getElementById('edit-inv-part-id').value = item.part_id;
+            document.getElementById('edit-inv-shop-name').textContent = item.shop_name;
+            document.getElementById('edit-inv-part-name').textContent = `${item.part_name} (${item.part_number})`;
+            document.getElementById('edit-inv-quantity-display').textContent = item.quantity; // Display only
+            document.getElementById('edit-inv-min-reorder-level').value = item.min_reorder_level;
+            document.getElementById('edit-inv-location-info').value = item.location_info || '';
+            
+            showMessage('edit-inventory-message', ''); // Clear previous messages
+            modals['edit-inventory-modal'].show();
+        }
 
-                if (internalDifference !== 0) {
-                    analysisHTML += `<p class="alert alert-warning"><strong>警告:</strong> システム内部で記録のズレ(${internalDifference})が検知されました。補充処理の反映漏れや、データ処理上の問題の可能性があります。</p>`;
-                }
+        async function updateInventoryItem() {
+            const modalElement = document.getElementById('edit-inventory-modal');
+            const shop_id = document.getElementById('edit-inv-shop-id').value;
+            const part_id = document.getElementById('edit-inv-part-id').value;
+            const quantity = modalElement.dataset.originalQuantity; // Use original quantity
+            const min_reorder_level = document.getElementById('edit-inv-min-reorder-level').value;
+            const location_info = document.getElementById('edit-inv-location-info').value;
 
-                if (physicalDifference > 0) {
-                    analysisHTML += `<p class="alert alert-info"><strong>情報:</strong> 物理的な在庫が、システムの記録より ${physicalDifference} 個多くなっています。記録されていない補充（返品など）があった可能性があります。</p>`;
-                } else if (physicalDifference < 0) {
-                    analysisHTML += `<p class="alert alert-danger"><strong>問題:</strong> 物理的な在庫が、システムの記録より ${Math.abs(physicalDifference)} 個少なくなっています。システム内部の記録が正常な場合は、記録されていない在庫の移動（使用、紛失、破損など）があった可能性が高いです。</p>`;
-                } 
+            try {
+                await apiRequest('/api/admin/inventory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shop_id, part_id, quantity, min_reorder_level, location_info })
+                });
+                showMessage('edit-inventory-message', '在庫情報を更新しました。', 'success');
                 
-                if (internalDifference === 0 && physicalDifference === 0) {
-                    analysisHTML += `<p class="alert alert-success">物理的な在庫とシステム上の在庫に差異はありませんでした。</p>`;
-                }
-
-                analysisHTML += `
-                    <div id="replenishment-details" class="details-section mt-3">
-                        <h6>▼ 補充履歴 (${details.replenishments.length}件)</h6>
-                        <div class="table-responsive" style="max-height: 200px;">
-                            <table class="table table-sm table-bordered"><thead><tr><th>日時</th><th>数量</th><th>担当者</th></tr></thead><tbody>
-                            ${details.replenishments.map(r => `<tr><td>${new Date(r.replenished_at).toLocaleString()}</td><td>+${r.quantity_added}</td><td>${r.username}</td></tr>`).join('') || '<tr><td colspan="3">記録なし</td></tr>'}
-                            </tbody></table>
-                        </div>
-                    </div>
-                    <div id="usage-details" class="details-section mt-3">
-                        <h6>▼ 使用履歴 (${details.usages.length}件)</h6>
-                        <div class="table-responsive" style="max-height: 200px;">
-                            <table class="table table-sm table-bordered"><thead><tr><th>日時</th><th>状態</th><th>従業員</th></tr></thead><tbody>
-                            ${details.usages.map(u => `<tr class="${u.status === 'cancelled' ? 'text-muted' : ''}"><td>${new Date(u.usage_time).toLocaleString()}</td><td>${u.status === 'cancelled' ? '取消' : '使用'}</td><td>${u.employee_name}</td></tr>`).join('') || '<tr><td colspan="3">記録なし</td></tr>'}
-                            </tbody></table>
-                        </div>
-                    </div>
-                `;
-
-                modalBody.innerHTML = analysisHTML;
+                setTimeout(() => {
+                    modals['edit-inventory-modal'].hide();
+                    loadAllInventory();
+                }, 1000);
 
             } catch (error) {
-                modalBody.innerHTML = `<div class="alert alert-danger">分析レポートの生成に失敗しました: ${error.message}</div>`;
-            }
-        }
-
-        function toggleDetails(sectionId) {
-            const section = document.getElementById(sectionId);
-            if (section.style.display === 'none' || section.style.display === '') {
-                section.style.display = 'block';
-            } else {
-                section.style.display = 'none';
-            }
-        }
-
-        // --- Helper ---
-        function togglePasswordVisibility(inputId, button) {
-            const passwordInput = document.getElementById(inputId);
-            const icon = button.querySelector('i');
-            if (passwordInput.type === 'password') {
-                passwordInput.type = 'text';
-                icon.classList.remove('bi-eye-slash');
-                icon.classList.add('bi-eye');
-            } else {
-                passwordInput.type = 'password';
-                icon.classList.remove('bi-eye');
-                icon.classList.add('bi-eye-slash');
-            }
-        }
-
-        function showMessage(elementId, message, type = 'info') {
-            const element = document.getElementById(elementId);
-            if (element) {
-                element.textContent = message;
-                element.className = `mt-3 alert alert-${type}`;
-                setTimeout(() => { if(element.classList.contains('alert')) element.className = ''; element.textContent = ''; }, 5000);
+                showMessage('edit-inventory-message', `更新エラー: ${error.message}`, 'danger');
             }
         }
     </script>
