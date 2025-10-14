@@ -214,7 +214,7 @@
             try {
                 const response = await fetch('/api/auth/status');
                 const data = await response.json();
-                if (data.loggedIn && data.user.role === 'shop_user' && data.user.shop_id) {
+                if (data.loggedIn && data.user.type === 'shop' && data.user.shop_id) {
                     currentUser = data.user;
                     return true;
                 }
@@ -393,7 +393,7 @@
                 const response = await fetch('/api/use-part', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ part_id: partId, shop_id: currentUser.shop_id, employee_id })
+                    body: JSON.stringify({ part_id: partId, employee_id })
                 });
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.error || '不明なエラー');
