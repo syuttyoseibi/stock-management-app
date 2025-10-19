@@ -1,6 +1,6 @@
 const express = require('express');
 require('dotenv').config(); // Load environment variables from .env file
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const session = require('express-session');
 const cookieParser = require('cookie-parser');
 const bcrypt = require('bcrypt');
@@ -12,18 +12,16 @@ const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-const dbPath = process.env.NODE_ENV === 'test' ? ':memory:' : (process.env.DATABASE_PATH || './data/stock.db');
+// --- PostgreSQL (Supabase) Connection ---
+const pool = new Pool();
 
-if (dbPath !== ':memory:') {
-    const dbDir = path.dirname(dbPath);
-    if (!fs.existsSync(dbDir)) {
-        fs.mkdirSync(dbDir, { recursive: true });
+console.log('Connecting to Supabase...');
+pool.query('SELECT NOW()', (err, res) => {
+    if (err) {
+        console.error('Error connecting to Supabase', err);
+    } else {
+        console.log('Successfully connected to Supabase at', res.rows[0].now);
     }
-}
-
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) console.error('Could not connect to database', err);
-    else console.log('Connected to database at', dbPath);
 });
 
 const app = express();
@@ -31,7 +29,6 @@ const PORT = 3000;
 const saltRounds = 10;
 
 app.use(express.json());
-// ルートURLへのアクセス時にlogin.htmlを直接表示
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
@@ -39,7 +36,7 @@ app.get('/', (req, res) => {
 app.use(express.static('public'));
 app.use(cookieParser());
 if (process.env.NODE_ENV === 'production') {
-    app.set('trust proxy', 1); // Nginx, ngrokなどのリバースプロキシを信頼する
+    app.set('trust proxy', 1);
 }
 
 app.use(session({
@@ -47,95 +44,212 @@ app.use(session({
     resave: false,
     saveUninitialized: true,
     cookie: { 
-        secure: process.env.NODE_ENV === 'production', // 本番環境ではhttpsのみ
-        httpOnly: true, // クライアントサイドJSからのアクセスを禁止
-        sameSite: 'lax' // CSRF対策
+        secure: process.env.NODE_ENV === 'production',
+        httpOnly: true,
+        sameSite: 'lax'
     }
 }));
 
-const dbRun = (sql, params = []) => new Promise((resolve, reject) => { db.run(sql, params, function(err) { if (err) reject(err); else resolve(this); }); });
-const dbGet = (sql, params = []) => new Promise((resolve, reject) => { db.get(sql, params, (err, row) => { if (err) reject(err); else resolve(row); }); });
-const dbAll = (sql, params = []) => new Promise((resolve, reject) => { db.all(sql, params, (err, rows) => { if (err) reject(err); else resolve(rows); }); });
+// --- New DB Helper Functions for PostgreSQL ---
+const dbQuery = (text, params) => pool.query(text, params);
+
+const dbGet = async (text, params) => {
+    const result = await pool.query(text, params);
+    return result.rows[0];
+};
+
+const dbAll = async (text, params) => {
+    const result = await pool.query(text, params);
+    return result.rows;
+};
 
 const initializeDatabase = async () => {
-    await dbRun(`CREATE TABLE IF NOT EXISTS shops (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)`);
-    await dbRun(`CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)`);
-    await dbRun(`CREATE TABLE IF NOT EXISTS parts (id INTEGER PRIMARY KEY AUTOINCREMENT, part_number TEXT NOT NULL UNIQUE, part_name TEXT NOT NULL, category_id INTEGER, FOREIGN KEY (category_id) REFERENCES categories(id))`);
-    await dbRun(`CREATE TABLE IF NOT EXISTS inventories (id INTEGER PRIMARY KEY AUTOINCREMENT, part_id INTEGER NOT NULL, shop_id INTEGER NOT NULL, quantity INTEGER NOT NULL, min_reorder_level INTEGER NOT NULL, location_info TEXT, FOREIGN KEY (part_id) REFERENCES parts(id), FOREIGN KEY (shop_id) REFERENCES shops(id), UNIQUE(part_id, shop_id))`);
-    await dbRun(`CREATE TABLE IF NOT EXISTS employees (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, shop_id INTEGER NOT NULL, is_active INTEGER DEFAULT 1, FOREIGN KEY (shop_id) REFERENCES shops(id))`);
-    await dbRun(`CREATE TABLE IF NOT EXISTS usage_history (id INTEGER PRIMARY KEY AUTOINCREMENT, part_id INTEGER NOT NULL, shop_id INTEGER NOT NULL, employee_id INTEGER NOT NULL, usage_time TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', FOREIGN KEY (part_id) REFERENCES parts(id), FOREIGN KEY (shop_id) REFERENCES shops(id), FOREIGN KEY (employee_id) REFERENCES employees(id))`);
-    await dbRun(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, shop_id INTEGER, role TEXT NOT NULL, FOREIGN KEY (shop_id) REFERENCES shops(id))`);
-    await dbRun(`CREATE TABLE IF NOT EXISTS cancellation_history (id INTEGER PRIMARY KEY AUTOINCREMENT, usage_history_id INTEGER NOT NULL, cancelled_by_user_id INTEGER NOT NULL, cancelled_at TEXT NOT NULL, reason TEXT, FOREIGN KEY (usage_history_id) REFERENCES usage_history(id), FOREIGN KEY (cancelled_by_user_id) REFERENCES users(id))`);
-    await dbRun(`CREATE TABLE IF NOT EXISTS stocktake_history (id INTEGER PRIMARY KEY AUTOINCREMENT, part_id INTEGER NOT NULL, shop_id INTEGER NOT NULL, user_id INTEGER NOT NULL, stocktake_time TEXT NOT NULL, quantity_before INTEGER NOT NULL, quantity_after INTEGER NOT NULL, notes TEXT, FOREIGN KEY (part_id) REFERENCES parts(id), FOREIGN KEY (shop_id) REFERENCES shops(id), FOREIGN KEY (user_id) REFERENCES users(id))`);
-    await dbRun(`CREATE TABLE IF NOT EXISTS replenishment_history (id INTEGER PRIMARY KEY AUTOINCREMENT, part_id INTEGER NOT NULL, shop_id INTEGER NOT NULL, user_id INTEGER NOT NULL, replenished_at TEXT NOT NULL, quantity_added INTEGER NOT NULL, FOREIGN KEY (part_id) REFERENCES parts(id), FOREIGN KEY (shop_id) REFERENCES shops(id), FOREIGN KEY (user_id) REFERENCES users(id))`);
+    try {
+        const dropQuery = `
+            DROP TABLE IF EXISTS
+                cancellation_history,
+                stocktake_history,
+                replenishment_history,
+                usage_history,
+                inventories,
+                parts,
+                categories,
+                employees,
+                supplier_employees,
+                shops,
+                users,
+                suppliers
+            CASCADE;
+        `;
+        console.log('Dropping existing tables...');
+        await dbQuery(dropQuery);
+        console.log('Tables dropped successfully.');
 
-    const shopsCount = await dbGet("SELECT COUNT(*) AS count FROM shops");
-    if (shopsCount.count === 0) {
-        console.log("Seeding initial data...");
-        const shops = ["A整備工場", "B整備工場"];
-        const categories = ["エンジン消耗品", "ブレーキ関連", "電装・点火系", "冷却系", "足回り・駆動系", "外装・その他", "ケミカル類"];
-        const parts = [
-            { pn: "EO-001", name: "エンジンオイル 5W-30 SN 4L", cat: 1 }, { pn: "EO-002", name: "エンジンオイル 0W-20 SP 4L", cat: 1 },
-            { pn: "OF-001", name: "オイルフィルター トヨタ/ダイハツ用", cat: 1 }, { pn: "OF-002", name: "オイルフィルター ホンダ用", cat: 1 },
-            { pn: "BP-001", name: "ディスクブレーキパッド フロント 軽自動車用", cat: 2 }, { pn: "BP-002", name: "ディスクブレーキパッド フロント 普通車用", cat: 2 },
-            { pn: "BF-001", name: "ブレーキフルード DOT4 1L", cat: 2 }, { pn: "BT-001", name: "バッテリー 40B19L", cat: 3 },
-            { pn: "BT-002", name: "バッテリー 60B24L", cat: 3 }, { pn: "SP-001", name: "スパークプラグ 標準 (BKR5E-11)", cat: 3 },
-            { pn: "LLC-001", name: "ロングライフクーラント 緑 2L", cat: 4 }, { pn: "WB-001", name: "ワイパーブレード 450mm", cat: 6 },
-            { pn: "PC-001", name: "パーツクリーナー 840ml", cat: 7 }
-        ];
+        const createSchemaQuery = `
+            CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role = 'admin'));
+            CREATE TABLE IF NOT EXISTS suppliers (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS shops (id SERIAL PRIMARY KEY, name TEXT NOT NULL, supplier_id INTEGER REFERENCES suppliers(id), username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, UNIQUE(name, supplier_id));
+            CREATE TABLE IF NOT EXISTS supplier_employees (id SERIAL PRIMARY KEY, name TEXT NOT NULL, supplier_id INTEGER NOT NULL REFERENCES suppliers(id), is_active BOOLEAN DEFAULT TRUE);
+            CREATE TABLE IF NOT EXISTS employees (id SERIAL PRIMARY KEY, name TEXT NOT NULL, shop_id INTEGER NOT NULL REFERENCES shops(id), is_active BOOLEAN DEFAULT TRUE);
+            CREATE TABLE IF NOT EXISTS categories (id SERIAL PRIMARY KEY, name TEXT NOT NULL, supplier_id INTEGER REFERENCES suppliers(id), UNIQUE(name, supplier_id));
+            CREATE TABLE IF NOT EXISTS parts (id SERIAL PRIMARY KEY, part_number TEXT NOT NULL, part_name TEXT NOT NULL, category_id INTEGER REFERENCES categories(id), supplier_id INTEGER REFERENCES suppliers(id), UNIQUE(part_number, supplier_id));
+            CREATE TABLE IF NOT EXISTS inventories (id SERIAL PRIMARY KEY, part_id INTEGER NOT NULL REFERENCES parts(id), shop_id INTEGER NOT NULL REFERENCES shops(id), quantity INTEGER NOT NULL, min_reorder_level INTEGER NOT NULL, location_info TEXT, UNIQUE(part_id, shop_id));
+            CREATE TABLE IF NOT EXISTS usage_history (id SERIAL PRIMARY KEY, part_id INTEGER NOT NULL REFERENCES parts(id), shop_id INTEGER NOT NULL REFERENCES shops(id), employee_id INTEGER NOT NULL REFERENCES employees(id), usage_time TIMESTAMPTZ NOT NULL DEFAULT NOW(), status TEXT NOT NULL DEFAULT 'active');
+            CREATE TABLE IF NOT EXISTS cancellation_history (id SERIAL PRIMARY KEY, usage_history_id INTEGER NOT NULL REFERENCES usage_history(id), cancelled_by_notes TEXT, cancelled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), reason TEXT);
+            CREATE TABLE IF NOT EXISTS stocktake_history (id SERIAL PRIMARY KEY, part_id INTEGER NOT NULL REFERENCES parts(id), shop_id INTEGER NOT NULL REFERENCES shops(id), performed_by_employee_id INTEGER REFERENCES employees(id), stocktake_time TIMESTAMPTZ NOT NULL DEFAULT NOW(), quantity_before INTEGER NOT NULL, quantity_after INTEGER NOT NULL, notes TEXT);
+            CREATE TABLE IF NOT EXISTS replenishment_history (id SERIAL PRIMARY KEY, part_id INTEGER NOT NULL REFERENCES parts(id), shop_id INTEGER NOT NULL REFERENCES shops(id), performed_by_supplier_employee_id INTEGER REFERENCES supplier_employees(id), replenished_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), quantity_added INTEGER NOT NULL);
+        `;
+        console.log('Creating new tables...');
+        await dbQuery(createSchemaQuery);
+        console.log('Tables created successfully.');
 
-        for (const shop of shops) { await dbRun("INSERT INTO shops (name) VALUES (?)", [shop]); }
-        for (const category of categories) { await dbRun("INSERT INTO categories (name) VALUES (?)", [category]); }
-        for (const part of parts) { await dbRun("INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?)", [part.pn, part.name, part.cat]); }
+        const adminCountResult = await dbGet("SELECT COUNT(*) AS count FROM users WHERE username = $1", ['admin']);
+        const adminCount = parseInt(adminCountResult.count, 10);
 
-        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [1, 1, 20, 5, "棚A-1"]);
-        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [3, 1, 15, 5, "棚A-2"]);
-        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [7, 1, 5, 2, "棚B-2"]);
-        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [8, 1, 8, 3, "棚C-1"]);
-        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [2, 2, 25, 5, "ラック1"]);
-        await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?)", [4, 2, 18, 5, "ラック1"]);
+        if (adminCount === 0) {
+            console.log("Seeding database for PostgreSQL...");
 
-        const hash = await bcrypt.hash('password', saltRounds);
-        await dbRun("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)", ['admin', hash, 'admin']);
-        console.log("Initial data seeded.");
+            // 1. Seed Admin
+            const adminHash = await bcrypt.hash('password', saltRounds);
+            await dbQuery("INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3)", ['admin', adminHash, 'admin']);
+
+            // 2. Seed a Supplier
+            const supplierHash = await bcrypt.hash('supplier', saltRounds);
+            const supplierResult = await dbQuery("INSERT INTO suppliers (name, username, password_hash) VALUES ($1, $2, $3) RETURNING id", ['Default部品商', 'supplier', supplierHash]);
+            const supplierId = supplierResult.rows[0].id;
+
+            // 3. Seed a Shop for that Supplier
+            const shopHash = await bcrypt.hash('shop', saltRounds);
+            const shopResult = await dbQuery("INSERT INTO shops (name, supplier_id, username, password_hash) VALUES ($1, $2, $3, $4) RETURNING id", ['A整備工場', supplierId, 'shop', shopHash]);
+            const shopId = shopResult.rows[0].id;
+
+            // 4. Seed employees for the Shop
+            await dbQuery("INSERT INTO employees (name, shop_id) VALUES ($1, $2)", ['鈴木 一郎', shopId]);
+            await dbQuery("INSERT INTO employees (name, shop_id) VALUES ($1, $2)", ['田中 太郎', shopId]);
+
+            // 5. Seed employees/staff for the Supplier
+            await dbQuery("INSERT INTO supplier_employees (name, supplier_id) VALUES ($1, $2)", ['山田 花子', supplierId]);
+
+            // 6. Seed master data (categories and parts) for the Supplier
+            const categoryResult = await dbQuery("INSERT INTO categories (name, supplier_id) VALUES ($1, $2) RETURNING id", ['エンジン消耗品', supplierId]);
+            const catId = categoryResult.rows[0].id;
+            const partResult1 = await dbQuery("INSERT INTO parts (part_number, part_name, category_id, supplier_id) VALUES ($1, $2, $3, $4) RETURNING id", ['EO-001', 'エンジンオイル 5W-30 SN 4L', catId, supplierId]);
+            const partResult2 = await dbQuery("INSERT INTO parts (part_number, part_name, category_id, supplier_id) VALUES ($1, $2, $3, $4) RETURNING id", ['OF-001', 'オイルフィルター トヨタ/ダイハツ用', catId, supplierId]);
+            
+            // 7. Seed inventory linking parts to the shop
+            await dbQuery("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES ($1, $2, $3, $4, $5)", [partResult1.rows[0].id, shopId, 20, 5, "棚A-1"]);
+            await dbQuery("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES ($1, $2, $3, $4, $5)", [partResult2.rows[0].id, shopId, 15, 5, "棚A-2"]);
+
+            console.log("PostgreSQL database seeded successfully.");
+        }
+    } catch (err) {
+        console.error("Error during database initialization:", err);
+        throw err; // Re-throw the error to be caught by the caller
     }
 };
 
 // --- Auth APIs ---
-app.post('/api/login', async (req, res) => { const { username, password } = req.body; if (!username || !password) { return res.status(400).json({ error: 'Username and password are required' }); } try { const user = await dbGet("SELECT * FROM users WHERE username = ?", [username]); if (!user) { return res.status(401).json({ error: 'Invalid credentials' }); } const match = await bcrypt.compare(password, user.password_hash); if (match) { req.session.user = { id: user.id, username: user.username, role: user.role, shop_id: user.shop_id }; res.json({ message: 'Login successful', user: req.session.user }); } else { res.status(401).json({ error: 'Invalid credentials' }); } } catch (err) { res.status(500).json({ error: 'Server error' }); } });
-app.post('/api/logout', (req, res) => { req.session.destroy(err => { if (err) { return res.status(500).json({ error: 'Could not log out' }); } res.clearCookie('connect.sid'); res.json({ message: 'Logout successful' }); }); });
-app.get('/api/auth/status', (req, res) => { if (req.session.user) { res.json({ loggedIn: true, user: req.session.user }); } else { res.json({ loggedIn: false }); } });
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password are required' });
+    }
 
-app.get('/api/employees', isAuthenticated, isShopUser, async (req, res) => {
+    try {
+        // 1. Check for Admin
+        const admin = await dbGet("SELECT * FROM users WHERE username = $1", [username]);
+        if (admin) {
+            const match = await bcrypt.compare(password, admin.password_hash);
+            if (match) {
+                req.session.auth = { type: 'admin', id: admin.id, username: admin.username, name: admin.username, role: 'admin' };
+                return res.json({ message: 'Login successful', user: req.session.auth });
+            }
+        }
+
+        // 2. Check for Supplier
+        const supplier = await dbGet("SELECT * FROM suppliers WHERE username = $1", [username]);
+        if (supplier) {
+            const match = await bcrypt.compare(password, supplier.password_hash);
+            if (match) {
+                req.session.auth = { type: 'supplier', id: supplier.id, username: supplier.username, name: supplier.name, role: 'supplier' };
+                return res.json({ message: 'Login successful', user: req.session.auth });
+            }
+        }
+
+        // 3. Check for Shop
+        const shop = await dbGet("SELECT * FROM shops WHERE username = $1", [username]);
+        if (shop) {
+            const match = await bcrypt.compare(password, shop.password_hash);
+            if (match) {
+                req.session.auth = { type: 'shop', id: shop.id, username: shop.username, name: shop.name, role: 'shop_user', shop_id: shop.id };
+                return res.json({ message: 'Login successful', user: req.session.auth });
+            }
+        }
+
+        // 4. If no user found in any table, return invalid credentials
+        return res.status(401).json({ error: 'Invalid credentials' });
+
+    } catch (err) {
+        console.error('Server error during login:', err);
+        res.status(500).json({ error: 'Server error during login' });
+    }
+});
+
+app.post('/api/logout', (req, res) => { 
+    req.session.destroy(err => { 
+        if (err) { 
+            return res.status(500).json({ error: 'Could not log out' }); 
+        } 
+        res.clearCookie('connect.sid'); 
+        res.json({ message: 'Logout successful' }); 
+    }); 
+});
+
+app.get('/api/auth/status', (req, res) => { 
+    if (req.session.auth) { 
+        res.json({ loggedIn: true, user: req.session.auth }); 
+    } else { 
+        res.json({ loggedIn: false }); 
+    } 
+});
+
+app.get('/api/employees', isAuthenticated, isShop, async (req, res) => {
     try {
         const employees = await dbAll(
-            "SELECT id, name, is_active FROM employees WHERE shop_id = ? ORDER BY name",
-            [req.session.user.shop_id]
+            "SELECT id, name, is_active FROM employees WHERE shop_id = $1 ORDER BY name",
+            [req.session.auth.id]
         );
         res.json(employees);
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
 
-app.post('/api/employees', isAuthenticated, isShopUser, async (req, res) => {
+app.post('/api/employees', isAuthenticated, isShop, async (req, res) => {
     const { name } = req.body;
-    const shop_id = req.session.user.shop_id;
+    const shop_id = req.session.auth.id;
     if (!name) {
         return res.status(400).json({ error: 'Employee name is required' });
     }
     try {
-        const result = await dbRun("INSERT INTO employees (name, shop_id) VALUES (?, ?)", [name, shop_id]);
-        res.status(201).json({ id: result.lastID, name, shop_id });
+        const result = await dbQuery("INSERT INTO employees (name, shop_id) VALUES ($1, $2) RETURNING id", [name, shop_id]);
+        const newEmployee = result.rows[0];
+        res.status(201).json({ id: newEmployee.id, name, shop_id });
     } catch (err) {
+        console.error(err);
+        // Add a more specific error for unique constraint violation
+        if (err.code === '23505') { // 23505 is the PostgreSQL error code for unique_violation
+            return res.status(409).json({ error: 'An employee with this name may already exist.' });
+        }
         res.status(500).json({ error: err.message });
     }
 });
 
-app.put('/api/employees/:id', isAuthenticated, isShopUser, async (req, res) => {
+app.put('/api/employees/:id', isAuthenticated, isShop, async (req, res) => {
     const { id } = req.params;
     const { name, is_active } = req.body;
-    const shop_id = req.session.user.shop_id;
+    const shop_id = req.session.auth.id;
 
     if (!name || is_active === undefined) {
         return res.status(400).json({ error: 'Name and is_active are required' });
@@ -143,268 +257,630 @@ app.put('/api/employees/:id', isAuthenticated, isShopUser, async (req, res) => {
 
     try {
         // Ensure the employee belongs to the user's shop before updating
-        const employee = await dbGet("SELECT id FROM employees WHERE id = ? AND shop_id = ?", [id, shop_id]);
+        const employee = await dbGet("SELECT id FROM employees WHERE id = $1 AND shop_id = $2", [id, shop_id]);
         if (!employee) {
             return res.status(404).json({ error: 'Employee not found in your shop' });
         }
 
-        const result = await dbRun("UPDATE employees SET name = ?, is_active = ? WHERE id = ?", [name, is_active, id]);
-        if (result.changes === 0) {
+        const result = await dbQuery("UPDATE employees SET name = $1, is_active = $2 WHERE id = $3", [name, is_active, id]);
+        if (result.rowCount === 0) {
             return res.status(404).json({ error: 'Employee not found' });
         }
         res.json({ message: 'Employee updated successfully' });
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 });
 
 // --- Middleware ---
-function isAuthenticated(req, res, next) { if (req.session.user) { next(); } else { res.status(401).json({ error: 'Unauthorized' }); } }
-function isAdmin(req, res, next) { if (req.session.user && req.session.user.role === 'admin') { next(); } else { res.status(403).json({ error: 'Forbidden: Admin access required' }); } }
-function isShopUser(req, res, next) { if (req.session.user && req.session.user.role === 'shop_user' && req.session.user.shop_id) { next(); } else { res.status(403).json({ error: 'Forbidden: Shop user access required' }); } }
-function isAdminOrSupplier(req, res, next) { if (req.session.user && (req.session.user.role === 'admin' || req.session.user.role === 'supplier')) { next(); } else { res.status(403).json({ error: 'Forbidden: Admin or Supplier access required' }); } }
+function isAuthenticated(req, res, next) {
+    if (req.session.auth) {
+        next();
+    } else {
+        res.status(401).json({ error: 'Unauthorized' });
+    }
+}
+
+function isAdmin(req, res, next) {
+    if (req.session.auth && req.session.auth.type === 'admin') {
+        next();
+    } else {
+        res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+}
+
+function isSupplier(req, res, next) {
+    if (req.session.auth && req.session.auth.type === 'supplier') {
+        next();
+    } else {
+        res.status(403).json({ error: 'Forbidden: Supplier access required' });
+    }
+}
+
+function isShop(req, res, next) {
+    if (req.session.auth && req.session.auth.type === 'shop') {
+        next();
+    } else {
+        res.status(403).json({ error: 'Forbidden: Shop access required' });
+    }
+}
+
+function isAdminOrSupplier(req, res, next) {
+    if (req.session.auth && (req.session.auth.type === 'admin' || req.session.auth.type === 'supplier')) {
+        next();
+    } else {
+        res.status(403).json({ error: 'Forbidden: Admin or Supplier access required' });
+    }
+}
 
 // --- General User APIs ---
-app.get('/api/shops', isAuthenticated, async (req, res) => { try { if (req.session.user.role === 'admin' || req.session.user.role === 'supplier') { const rows = await dbAll("SELECT id, name FROM shops ORDER BY name"); res.json(rows); } else if (req.session.user.role === 'shop_user' && req.session.user.shop_id) { const row = await dbGet("SELECT id, name FROM shops WHERE id = ?", [req.session.user.shop_id]); res.json(row ? [row] : []); } else { res.status(403).json({ error: 'Forbidden: Invalid role or shop_id' }); } } catch (err) { res.status(500).json({ error: err.message }); } });
-app.get('/api/shops/:shopId/inventory', isAuthenticated, async (req, res) => { const { shopId } = req.params;
- if (req.session.user.role === 'shop_user' && parseInt(shopId) !== req.session.user.shop_id) {
- return res.status(403).json({ error: "Forbidden: You can only view your own shop's inventory" });
- }
- const sql = `
-        SELECT 
-            p.id, 
-            p.part_number, 
-            p.part_name, 
-            c.id as category_id, 
-            c.name as category_name, 
-            i.quantity, 
-            i.min_reorder_level, 
-            i.location_info 
-        FROM 
-            parts p 
-        JOIN 
-            inventories i ON p.id = i.part_id 
-        LEFT JOIN 
-            categories c ON p.category_id = c.id 
-        WHERE i.shop_id = ? 
-        ORDER BY c.name, p.part_name;`;
- try {
- const rows = await dbAll(sql, [shopId]);
- res.json(rows);
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+app.get('/api/shops', isAuthenticated, async (req, res) => {
+    const { type, id } = req.session.auth;
+    try {
+        if (type === 'admin') {
+            const rows = await dbAll("SELECT id, name FROM shops ORDER BY name");
+            return res.json(rows);
+        }
+        if (type === 'supplier') {
+            // A supplier can see the shops they manage
+            const rows = await dbAll("SELECT id, name FROM shops WHERE supplier_id = $1 ORDER BY name", [id]);
+            return res.json(rows);
+        }
+        if (type === 'shop') {
+            // A shop can only see itself
+            const row = await dbGet("SELECT id, name FROM shops WHERE id = $1", [id]);
+            return res.json(row ? [row] : []);
+        }
+        return res.status(403).json({ error: 'Forbidden: Invalid role' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
 });
-app.post('/api/use-part', isAuthenticated, async (req, res) => { const { part_id, shop_id, employee_id } = req.body;
- if (!part_id || !shop_id || !employee_id) {
- return res.status(400).json({ error: "部品ID、工場ID、従業員IDは必須です" });
- }
- if (req.session.user.role === 'shop_user' && parseInt(shop_id) !== req.session.user.shop_id) {
- return res.status(403).json({ error: 'Forbidden: You can only use parts from your own shop' });
- }
- try {
- await dbRun("BEGIN TRANSACTION;");
- const result = await dbRun("UPDATE inventories SET quantity = quantity - 1 WHERE part_id = ? AND shop_id = ? AND quantity > 0", [part_id, shop_id]);
- if (result.changes === 0) {
- await dbRun("ROLLBACK;");
- return res.status(400).json({ error: "在庫がないか、在庫更新に失敗しました。" });
- }
- await dbRun("INSERT INTO usage_history (part_id, shop_id, usage_time, employee_id) VALUES (?, ?, datetime('now', 'localtime'), ?)", [part_id, shop_id, employee_id]);
- const row = await dbGet(`SELECT i.quantity, i.min_reorder_level, p.part_name FROM inventories i JOIN parts p ON i.part_id = p.id WHERE i.part_id = ? AND i.shop_id = ?`, [part_id, shop_id]);
- if (row && row.quantity < row.min_reorder_level) {
- console.log(`!!! 再発注アラート: [工場ID: ${shop_id}] ${row.part_name} が最低発注レベル (${row.min_reorder_level})を下回りました。現在の在庫: ${row.quantity}`);
- }
- await dbRun("COMMIT;");
- res.json({ message: "使用記録が完了しました。", stock_left: row ? row.quantity : 0 });
- } catch (err) {
- await dbRun("ROLLBACK;");
- res.status(500).json({ error: "トランザクションエラー: " + err.message });
- }
+
+app.get('/api/shops/:shopId/inventory', isAuthenticated, async (req, res) => { 
+    const { shopId } = req.params;
+    const { type, id: authId } = req.session.auth;
+
+    try {
+        // --- Authorization ---
+        if (type === 'shop' && parseInt(shopId) !== authId) {
+            return res.status(403).json({ error: "Forbidden: You can only view your own shop's inventory" });
+        }
+        if (type === 'supplier') {
+            const isManagedShop = await dbGet("SELECT id FROM shops WHERE id = $1 AND supplier_id = $2", [shopId, authId]);
+            if (!isManagedShop) {
+                return res.status(403).json({ error: "Forbidden: You can only view inventory for shops you manage." });
+            }
+        }
+
+        // --- Query Building ---
+        let sql = `
+            SELECT 
+                p.id, p.part_number, p.part_name, 
+                c.id as category_id, c.name as category_name, 
+                i.quantity, i.min_reorder_level, i.location_info 
+            FROM inventories i
+            JOIN parts p ON i.part_id = p.id
+            LEFT JOIN categories c ON p.category_id = c.id 
+            WHERE i.shop_id = $1`;
+        const params = [shopId];
+
+        if (type === 'supplier') {
+            // Suppliers see inventory only for parts they supply (or global parts)
+            sql += ` AND (p.supplier_id = $2 OR p.supplier_id IS NULL)`;
+            params.push(authId);
+        }
+
+        sql += ` ORDER BY c.name, p.part_name;`;
+
+        const rows = await dbAll(sql, params);
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
 });
-app.get('/api/usage-history', isAuthenticated, isShopUser, async (req, res) => { const shop_id = req.session.user.shop_id;
- let { month } = req.query;
- if (!month) {
- const now = new Date();
- month = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
- }
- const sql = `SELECT h.id, p.part_number, p.part_name, h.usage_time, e.name as employee_name, h.status FROM usage_history h JOIN parts p ON h.part_id = p.id JOIN employees e ON h.employee_id = e.id WHERE h.shop_id = ? AND STRFTIME('%Y-%m', h.usage_time) = ? ORDER BY h.usage_time DESC`;
- try {
- const rows = await dbAll(sql, [shop_id, month]);
- res.json(rows);
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+app.post('/api/use-part', isAuthenticated, isShop, async (req, res) => { 
+    const { part_id, employee_id } = req.body;
+    const shop_id = req.session.auth.id;
+
+    if (!part_id || !employee_id) {
+        return res.status(400).json({ error: "部品IDと従業員IDは必須です" });
+    }
+
+    const client = await pool.connect();
+
+    try {
+        // Verify the employee belongs to the shop
+        const employeeResult = await client.query("SELECT id FROM employees WHERE id = $1 AND shop_id = $2", [employee_id, shop_id]);
+        if (employeeResult.rows.length === 0) {
+            return res.status(403).json({ error: "Forbidden: This employee does not belong to your shop." });
+        }
+
+        await client.query("BEGIN");
+
+        const updateResult = await client.query("UPDATE inventories SET quantity = quantity - 1 WHERE part_id = $1 AND shop_id = $2 AND quantity > 0", [part_id, shop_id]);
+
+        if (updateResult.rowCount === 0) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: "在庫がないか、在庫更新に失敗しました。" });
+        }
+
+        await client.query("INSERT INTO usage_history (part_id, shop_id, usage_time, employee_id, status) VALUES ($1, $2, NOW(), $3, 'active')", [part_id, shop_id, employee_id]);
+        
+        const inventoryResult = await client.query(`SELECT i.quantity, i.min_reorder_level, p.part_name FROM inventories i JOIN parts p ON i.part_id = p.id WHERE i.part_id = $1 AND i.shop_id = $2`, [part_id, shop_id]);
+        const row = inventoryResult.rows[0];
+
+        if (row && row.quantity < row.min_reorder_level) {
+            console.log(`!!! 再発注アラート: [工場ID: ${shop_id}] ${row.part_name} が最低発注レベル (${row.min_reorder_level})を下回りました。現在の在庫: ${row.quantity}`);
+        }
+
+        await client.query("COMMIT");
+        res.json({ message: "使用記録が完了しました。", stock_left: row ? row.quantity : 0 });
+
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("Transaction error in /api/use-part: ", err);
+        res.status(500).json({ error: "トランザクションエラー: " + err.message });
+    } finally {
+        client.release();
+    }
 });
-app.post('/api/cancel-usage', isAuthenticated, async (req, res) => { const { usage_id, reason } = req.body;
- const cancelled_by_user_id = req.session.user.id;
- if (!usage_id) {
- return res.status(400).json({ error: 'Usage ID is required.' });
- }
- try {
- await dbRun("BEGIN TRANSACTION;");
- const usage = await dbGet("SELECT * FROM usage_history WHERE id = ? AND status = 'active'", [usage_id]);
- if (!usage) {
- await dbRun("ROLLBACK;");
- return res.status(404).json({ error: "Active usage record not found or already cancelled." });
- }
- await dbRun("UPDATE usage_history SET status = 'cancelled' WHERE id = ?", [usage_id]);
- await dbRun("UPDATE inventories SET quantity = quantity + 1 WHERE part_id = ? AND shop_id = ?", [usage.part_id, usage.shop_id]);
- await dbRun(`INSERT INTO cancellation_history (usage_history_id, cancelled_by_user_id, cancelled_at, reason) VALUES (?, ?, datetime('now', 'localtime'), ?)`, [usage_id, cancelled_by_user_id, reason]);
- await dbRun("COMMIT;");
- res.json({ message: "Usage successfully cancelled and inventory restored." });
- } catch (err) {
- await dbRun("ROLLBACK;");
- res.status(500).json({ error: "Transaction failed during cancellation.", details: err.message });
- }
+
+app.get('/api/usage-history', isAuthenticated, isShop, async (req, res) => {
+    const shop_id = req.session.auth.id;
+    let { month, startDate, endDate } = req.query;
+
+    let sql = `SELECT h.id, p.part_number, p.part_name, h.usage_time, e.name as employee_name, h.status FROM usage_history h JOIN parts p ON h.part_id = p.id JOIN employees e ON h.employee_id = e.id`;
+    const whereClauses = [];
+    const params = [];
+    let paramIndex = 1;
+
+    whereClauses.push(`h.shop_id = $${paramIndex++}`);
+    params.push(shop_id);
+
+    if (month) {
+        whereClauses.push(`TO_CHAR(h.usage_time, 'YYYY-MM') = $${paramIndex++}`);
+        params.push(month);
+    } else if (startDate && endDate) {
+        whereClauses.push(`h.usage_time BETWEEN $${paramIndex++} AND $${paramIndex++}`);
+        params.push(startDate, endDate + ' 23:59:59');
+    } else {
+        // Default to current month if no range is provided
+        const now = new Date();
+        month = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+        whereClauses.push(`TO_CHAR(h.usage_time, 'YYYY-MM') = $${paramIndex++}`);
+        params.push(month);
+    }
+
+    sql += ` WHERE ${whereClauses.join(' AND ')} ORDER BY h.usage_time DESC`;
+
+    try {
+        const rows = await dbAll(sql, params);
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/usage-history/csv', isAuthenticated, isShop, async (req, res) => {
+    const shop_id = req.session.auth.id;
+    let { month, startDate, endDate } = req.query;
+
+    let sql = `SELECT h.id, p.part_number, p.part_name, h.usage_time, e.name as employee_name, h.status, ch.reason as cancellation_reason 
+             FROM usage_history h 
+             JOIN parts p ON h.part_id = p.id 
+             JOIN employees e ON h.employee_id = e.id
+             LEFT JOIN cancellation_history ch ON h.id = ch.usage_history_id`;
+    const whereClauses = [];
+    const params = [];
+    let paramIndex = 1;
+
+    whereClauses.push(`h.shop_id = $${paramIndex++}`);
+    params.push(shop_id);
+
+    if (month) {
+        whereClauses.push(`TO_CHAR(h.usage_time, 'YYYY-MM') = $${paramIndex++}`);
+        params.push(month);
+    } else if (startDate && endDate) {
+        whereClauses.push(`h.usage_time BETWEEN $${paramIndex++} AND $${paramIndex++}`);
+        params.push(startDate, endDate + ' 23:59:59');
+    } else {
+        // Default to current month if no range is provided
+        const now = new Date();
+        month = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+        whereClauses.push(`TO_CHAR(h.usage_time, 'YYYY-MM') = $${paramIndex++}`);
+        params.push(month);
+    }
+
+    sql += ` WHERE ${whereClauses.join(' AND ')} ORDER BY h.usage_time DESC`;
+
+    try {
+        const rows = await dbAll(sql, params);
+        if (!rows || rows.length === 0) {
+            return res.status(404).send('No usage history to export for the selected criteria.');
+        }
+
+        const header = 'ID,品番,部品名,使用日時,従業員名,状態,取消理由\n';
+        const csvRows = rows.map(row => {
+            const status = row.status === 'cancelled' ? '取消済' : '使用中';
+            const values = [ row.id, row.part_number, row.part_name, row.usage_time, row.employee_name, status, row.cancellation_reason || '' ];
+            const escapedValues = values.map(v => {
+                const stringValue = String(v || '');
+                // Escape double quotes by doubling them
+                const escaped = stringValue.replace(/"/g, '""');
+                return `"${escaped}"`;
+            });
+            return escapedValues.join(',');
+        });
+
+        const csv = header + csvRows.join('\n');
+        res.header('Content-Type', 'text/csv; charset=utf-8');
+        res.send('\uFEFF' + csv); // Add BOM for Excel
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- Admin APIs ---
-app.get('/api/admin/shops', isAuthenticated, isAdminOrSupplier, async (req, res) => { try { const rows = await dbAll("SELECT id, name FROM shops ORDER BY id"); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.post('/api/admin/shops', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { name } = req.body;
- if (!name) {
- return res.status(400).json({ error: 'Shop name is required' });
- }
- try {
- const result = await dbRun("INSERT INTO shops (name) VALUES (?)", [name]);
- res.json({ id: result.lastID, name });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
-});
-app.put('/api/admin/shops/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
- const { name } = req.body;
- if (!name) {
- return res.status(400).json({ error: 'Shop name is required' });
- }
- try {
- await dbRun("UPDATE shops SET name = ? WHERE id = ?", [name, id]);
- res.json({ message: 'Shop updated successfully' });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
-});
-app.delete('/api/admin/shops/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
- try {
- const userCount = await dbGet("SELECT COUNT(*) AS count FROM users WHERE shop_id = ?", [id]);
- if (userCount.count > 0) {
- return res.status(400).json({ error: 'Cannot delete shop: Users are still assigned to it.' });
- }
- const invCount = await dbGet("SELECT COUNT(*) AS count FROM inventories WHERE shop_id = ?", [id]);
- if (invCount.count > 0) {
- return res.status(400).json({ error: 'Cannot delete shop: Inventory is still assigned to it.' });
- }
- const result = await dbRun("DELETE FROM shops WHERE id = ?", [id]);
- if (result.changes === 0) {
- return res.status(404).json({ error: 'Shop not found' });
- }
- res.json({ message: 'Shop deleted successfully' });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
-});
-
-app.get('/api/admin/categories', isAuthenticated, isAdminOrSupplier, async (req, res) => { try { const rows = await dbAll("SELECT id, name FROM categories ORDER BY id"); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.post('/api/admin/categories', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { name } = req.body;
- if (!name) {
- return res.status(400).json({ error: 'Category name is required' });
- }
- try {
- const result = await dbRun("INSERT INTO categories (name) VALUES (?)", [name]);
- res.json({ id: result.lastID, name });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
-});
-app.put('/api/admin/categories/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
- const { name } = req.body;
- if (!name) {
- return res.status(400).json({ error: 'Category name is required' });
- }
- try {
- await dbRun("UPDATE categories SET name = ? WHERE id = ?", [name, id]);
- res.json({ message: 'Category updated successfully' });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
-});
-app.delete('/api/admin/categories/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
- try {
- const partCount = await dbGet("SELECT COUNT(*) AS count FROM parts WHERE category_id = ?", [id]);
- if (partCount.count > 0) {
- return res.status(400).json({ error: 'Cannot delete category: Parts are still assigned to it.' });
- }
- const result = await dbRun("DELETE FROM categories WHERE id = ?", [id]);
- if (result.changes === 0) {
- return res.status(404).json({ error: 'Category not found' });
- }
- res.json({ message: 'Category deleted successfully' });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
-});
-
-app.get('/api/admin/parts', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT p.id, p.part_number, p.part_name, p.category_id, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.id`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-
-app.get('/api/admin/parts/uncategorized', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+app.get('/api/admin/shops', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { type, id } = req.session.auth;
     try {
-        const uncategorizedCategory = await dbGet("SELECT id FROM categories WHERE name = ?", ['未分類']);
-        const uncategorizedId = uncategorizedCategory ? uncategorizedCategory.id : -1; // Use a non-existent ID if not found
+        let sql = "SELECT id, name, username, supplier_id FROM shops";
+        const params = [];
+        if (type === 'supplier') {
+            sql += " WHERE supplier_id = $1";
+            params.push(id);
+        }
+        sql += " ORDER BY id";
+        const rows = await dbAll(sql, params);
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
-        const sql = `SELECT id, part_number, part_name FROM parts WHERE category_id IS NULL OR category_id = ? ORDER BY id`;
-        const rows = await dbAll(sql, [uncategorizedId]);
+app.post('/api/admin/shops', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { name, username, password, supplier_id } = req.body; // New fields
+    const { type, id: authId } = req.session.auth;
+
+    if (!name || !username || !password) {
+        return res.status(400).json({ error: '工場名、ログインID、パスワードは必須です' });
+    }
+
+    let final_supplier_id = null;
+    if (type === 'supplier') {
+        final_supplier_id = authId;
+    } else if (type === 'admin') {
+        final_supplier_id = supplier_id || null;
+    }
+
+    try {
+        // Cross-table username validation
+        const userExists = await dbGet("SELECT id FROM users WHERE username = $1", [username]);
+        const supplierExists = await dbGet("SELECT id FROM suppliers WHERE username = $1", [username]);
+        if (userExists || supplierExists) {
+            return res.status(409).json({ error: `ログインID「${username}」は他の役割で既に使用されています。` });
+        }
+
+        const hash = await bcrypt.hash(password, saltRounds);
+        const result = await dbQuery(
+            "INSERT INTO shops (name, username, password_hash, supplier_id) VALUES ($1, $2, $3, $4) RETURNING id",
+            [name, username, hash, final_supplier_id]
+        );
+        res.json({ id: result.rows[0].id, name, username, supplier_id: final_supplier_id });
+    } catch (err) {
+        if (err.code === '23505') { // unique_violation
+            return res.status(409).json({ error: 'その工場名またはログインIDは既に使用されています。' });
+        }
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/admin/shops/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { id: shopId } = req.params;
+    const { name, username, password } = req.body;
+    const { type, id: authId } = req.session.auth;
+
+    if (!name || !username) {
+        return res.status(400).json({ error: '工場名とログインIDは必須です' });
+    }
+
+    try {
+        // Authorization check
+        if (type === 'supplier') {
+            const shop = await dbGet("SELECT id FROM shops WHERE id = $1 AND supplier_id = $2", [shopId, authId]);
+            if (!shop) {
+                return res.status(403).json({ error: 'Forbidden: You can only edit shops you manage.' });
+            }
+        }
+
+        // Cross-table username validation
+        const userExists = await dbGet("SELECT id FROM users WHERE username = $1", [username]);
+        const supplierExists = await dbGet("SELECT id FROM suppliers WHERE username = $1", [username]);
+        const shopConflict = await dbGet("SELECT id FROM shops WHERE username = $1 AND id != $2", [username, shopId]);
+        if (userExists || supplierExists || shopConflict) {
+            return res.status(409).json({ error: `ログインID「${username}」は既に使用されています。` });
+        }
+
+        if (password) {
+            const hash = await bcrypt.hash(password, saltRounds);
+            await dbQuery("UPDATE shops SET name = $1, username = $2, password_hash = $3 WHERE id = $4", [name, username, hash, shopId]);
+        } else {
+            await dbQuery("UPDATE shops SET name = $1, username = $2 WHERE id = $3", [name, username, shopId]);
+        }
+        res.json({ message: 'Shop updated successfully' });
+    } catch (err) {
+        if (err.code === '23505') { // unique_violation
+            return res.status(409).json({ error: 'その工場名は、同じ部品商の管理下で既に使用されています。' });
+        }
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/admin/shops/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { id: shopId } = req.params;
+    const { type, id: authId } = req.session.auth;
+
+    try {
+        // Authorization
+        const shop = await dbGet("SELECT id, supplier_id FROM shops WHERE id = $1", [shopId]);
+        if (!shop) {
+            return res.status(404).json({ error: 'Shop not found.' });
+        }
+        if (type === 'supplier' && shop.supplier_id !== authId) {
+            return res.status(403).json({ error: 'Forbidden: You can only delete shops you manage.' });
+        }
+
+        // Pre-deletion checks
+        const employeeCountResult = await dbGet("SELECT COUNT(*) AS count FROM employees WHERE shop_id = $1", [shopId]);
+        if (parseInt(employeeCountResult.count, 10) > 0) {
+            return res.status(400).json({ error: 'Cannot delete shop: Employees are still assigned to it.' });
+        }
+        const invCountResult = await dbGet("SELECT COUNT(*) AS count FROM inventories WHERE shop_id = $1", [shopId]);
+        if (parseInt(invCountResult.count, 10) > 0) {
+            return res.status(400).json({ error: 'Cannot delete shop: Inventory is still assigned to it.' });
+        }
+
+        // Deletion
+        const result = await dbQuery("DELETE FROM shops WHERE id = $1", [shopId]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Shop not found or could not be deleted.' });
+        }
+        res.json({ message: 'Shop deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/admin/categories', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { type, id } = req.session.auth;
+    try {
+        let sql = "SELECT id, name FROM categories";
+        const params = [];
+        if (type === 'supplier') {
+            sql += " WHERE supplier_id = $1 OR supplier_id IS NULL";
+            params.push(id);
+        }
+        sql += " ORDER BY id";
+        const rows = await dbAll(sql, params);
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
-app.post('/api/admin/parts', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { part_number, part_name, category_id } = req.body;
- if (!part_number || !part_name) {
- return res.status(400).json({ error: 'Part number and name are required' });
- }
- try {
- const result = await dbRun("INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?)", [part_number, part_name, category_id]);
- res.json({ id: result.lastID, part_number, part_name, category_id });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+
+app.post('/api/admin/categories', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { name } = req.body;
+    if (!name) {
+        return res.status(400).json({ error: 'カテゴリー名は必須です' });
+    }
+    const { type, id } = req.session.auth;
+    const supplier_id = type === 'supplier' ? id : null;
+
+    try {
+        const result = await dbQuery("INSERT INTO categories (name, supplier_id) VALUES ($1, $2) RETURNING id", [name, supplier_id]);
+        res.json({ id: result.rows[0].id, name, supplier_id });
+    } catch (err) {
+        if (err.code === '23505') { // unique_violation
+            return res.status(409).json({ error: `カテゴリー名「${name}」は既に使用されています。` });
+        }
+        res.status(500).json({ error: err.message });
+    }
 });
-app.put('/api/admin/parts/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
- const { part_number, part_name, category_id } = req.body;
- if (!part_number || !part_name) {
- return res.status(400).json({ error: 'Part number and name are required' });
- }
- try {
- await dbRun("UPDATE parts SET part_number = ?, part_name = ?, category_id = ? WHERE id = ?", [part_number, part_name, category_id, id]);
- res.json({ message: 'Part updated successfully' });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+
+app.put('/api/admin/categories/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { id: categoryId } = req.params;
+    const { name } = req.body;
+    if (!name) {
+        return res.status(400).json({ error: 'Category name is required' });
+    }
+    const { type, id: authId } = req.session.auth;
+
+    try {
+        if (type === 'supplier') {
+            const category = await dbGet("SELECT id FROM categories WHERE id = $1 AND supplier_id = $2", [categoryId, authId]);
+            if (!category) {
+                return res.status(403).json({ error: 'Forbidden: You can only edit categories you own.' });
+            }
+        }
+        const result = await dbQuery("UPDATE categories SET name = $1 WHERE id = $2", [name, categoryId]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Category not found.' });
+        }
+        res.json({ message: 'Category updated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/admin/categories/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { id: categoryId } = req.params;
+    const { type, id: authId } = req.session.auth;
+
+    try {
+        // Authorization
+        if (type === 'supplier') {
+            const category = await dbGet("SELECT id FROM categories WHERE id = $1 AND supplier_id = $2", [categoryId, authId]);
+            if (!category) {
+                return res.status(403).json({ error: 'Forbidden: You can only delete categories you own.' });
+            }
+        }
+
+        // Pre-deletion check
+        const partCountResult = await dbGet("SELECT COUNT(*) AS count FROM parts WHERE category_id = $1", [categoryId]);
+        if (parseInt(partCountResult.count, 10) > 0) {
+            return res.status(400).json({ error: 'Cannot delete category: Parts are still assigned to it.' });
+        }
+
+        // Deletion
+        const result = await dbQuery("DELETE FROM categories WHERE id = $1", [categoryId]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Category not found.' });
+        }
+        res.json({ message: 'Category deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/admin/parts', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { type, id } = req.session.auth;
+    let sql = `SELECT p.id, p.part_number, p.part_name, p.category_id, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id`;
+    const params = [];
+    if (type === 'supplier') {
+        sql += " WHERE p.supplier_id = $1 OR p.supplier_id IS NULL";
+        params.push(id);
+    }
+    sql += " ORDER BY p.id";
+    try {
+        const rows = await dbAll(sql, params);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/admin/parts/uncategorized', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { type, id: authId } = req.session.auth;
+    try {
+        let uncategorizedCategory;
+        if (type === 'supplier') {
+            uncategorizedCategory = await dbGet("SELECT id FROM categories WHERE name = $1 AND (supplier_id = $2 OR supplier_id IS NULL)", ['未分類', authId]);
+        } else { // admin
+            uncategorizedCategory = await dbGet("SELECT id FROM categories WHERE name = $1 AND supplier_id IS NULL", ['未分類']);
+        }
+        const uncategorizedId = uncategorizedCategory ? uncategorizedCategory.id : -1;
+
+        let sql = `SELECT id, part_number, part_name FROM parts WHERE category_id IS NULL OR category_id = $1`;
+        const params = [uncategorizedId];
+
+        if (type === 'supplier') {
+            sql += " AND (supplier_id = $2 OR supplier_id IS NULL)";
+            params.push(authId);
+        }
+        sql += " ORDER BY id";
+
+        const rows = await dbAll(sql, params);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+app.post('/api/admin/parts', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { part_number, part_name, category_id } = req.body;
+    if (!part_number || !part_name) {
+        return res.status(400).json({ error: '品番と部品名は必須です' });
+    }
+    const { type, id } = req.session.auth;
+    const supplier_id = type === 'supplier' ? id : null;
+    try {
+        const result = await dbQuery("INSERT INTO parts (part_number, part_name, category_id, supplier_id) VALUES ($1, $2, $3, $4) RETURNING id", [part_number, part_name, category_id, supplier_id]);
+        res.json({ id: result.rows[0].id, part_number, part_name, category_id, supplier_id });
+    } catch (err) {
+        if (err.code === '23505') { // unique_violation
+            return res.status(409).json({ error: `品番「${part_number}」は既に使用されています。` });
+        }
+        res.status(500).json({ error: err.message });
+    }
+});
+app.put('/api/admin/parts/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { 
+    const { id: partId } = req.params;
+    const { part_number, part_name, category_id } = req.body;
+    if (!part_number || !part_name) {
+        return res.status(400).json({ error: 'Part number and name are required' });
+    }
+    const { type, id: authId } = req.session.auth;
+
+    try {
+        if (type === 'supplier') {
+            const part = await dbGet("SELECT id FROM parts WHERE id = $1 AND supplier_id = $2", [partId, authId]);
+            if (!part) {
+                return res.status(403).json({ error: 'Forbidden: You can only edit parts you own.' });
+            }
+        }
+        
+        const result = await dbQuery("UPDATE parts SET part_number = $1, part_name = $2, category_id = $3 WHERE id = $4", [part_number, part_name, category_id, partId]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Part not found.' });
+        }
+        res.json({ message: 'Part updated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.put('/api/admin/parts/:id/category', isAuthenticated, isAdminOrSupplier, async (req, res) => {
-    const { id } = req.params;
+    const { id: partId } = req.params;
     const { categoryId } = req.body;
+    const { type, id: authId } = req.session.auth;
+
     try {
-        await dbRun("UPDATE parts SET category_id = ? WHERE id = ?", [categoryId, id]);
+        if (type === 'supplier') {
+            const part = await dbGet("SELECT id FROM parts WHERE id = $1 AND supplier_id = $2", [partId, authId]);
+            if (!part) {
+                return res.status(403).json({ error: 'Forbidden: You can only assign categories for parts you own.' });
+            }
+        }
+        const result = await dbQuery("UPDATE parts SET category_id = $1 WHERE id = $2", [categoryId, partId]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Part not found.' });
+        }
         res.json({ message: 'Category updated successfully.' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
-app.delete('/api/admin/parts/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { id } = req.params;
- try {
- const invCount = await dbGet("SELECT COUNT(*) AS count FROM inventories WHERE part_id = ?", [id]);
- if (invCount.count > 0) {
- return res.status(400).json({ error: 'Cannot delete part: It still exists in some inventories.' });
- }
- const result = await dbRun("DELETE FROM parts WHERE id = ?", [id]);
- if (result.changes === 0) {
- return res.status(404).json({ error: 'Part not found' });
- }
- res.json({ message: 'Part deleted successfully' });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+app.delete('/api/admin/parts/:id', isAuthenticated, isAdminOrSupplier, async (req, res) => { 
+    const { id: partId } = req.params;
+    const { type, id: authId } = req.session.auth;
+
+    try {
+        if (type === 'supplier') {
+            const part = await dbGet("SELECT id FROM parts WHERE id = $1 AND supplier_id = $2", [partId, authId]);
+            if (!part) {
+                return res.status(403).json({ error: 'Forbidden: You can only delete parts you own.' });
+            }
+        }
+
+        const invCountResult = await dbGet("SELECT COUNT(*) AS count FROM inventories WHERE part_id = $1", [partId]);
+        if (parseInt(invCountResult.count, 10) > 0) {
+            return res.status(400).json({ error: 'Cannot delete part: It still exists in some inventories.' });
+        }
+
+        const result = await dbQuery("DELETE FROM parts WHERE id = $1", [partId]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Part not found.' });
+        }
+        res.json({ message: 'Part deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 app.delete('/api/admin/parts', isAuthenticated, isAdminOrSupplier, async (req, res) => {
@@ -412,38 +888,68 @@ app.delete('/api/admin/parts', isAuthenticated, isAdminOrSupplier, async (req, r
     if (!partIds || !Array.isArray(partIds) || partIds.length === 0) {
         return res.status(400).json({ error: 'partIds array is required.' });
     }
+    const { type, id: authId } = req.session.auth;
 
     try {
-        // Check if any of the parts are in use
-        const placeholders = partIds.map(() => '?').join(',');
-        const invCountSql = `SELECT COUNT(*) AS count FROM inventories WHERE part_id IN (${placeholders})`;
-        const invCount = await dbGet(invCountSql, partIds);
-        if (invCount.count > 0) {
-            return res.status(400).json({ error: '削除できません: 選択された部品のいくつかは、いずれかの工場の在庫として登録されています。' });
+        const invPlaceholders = partIds.map((_, i) => `$${i + 1}`).join(',');
+        const invCountSql = `SELECT COUNT(*) AS count FROM inventories WHERE part_id IN (${invPlaceholders})`;
+        const invCountResult = await dbGet(invCountSql, partIds);
+        if (parseInt(invCountResult.count, 10) > 0) {
+            return res.status(400).json({ error: '削除できません: 選択された部品のいくつかが、いずれかの工場の在庫として登録されています。' });
         }
 
-        // Proceed with deletion
-        const deleteSql = `DELETE FROM parts WHERE id IN (${placeholders})`;
-        const result = await dbRun(deleteSql, partIds);
+        const deleteParams = [...partIds];
+        const deletePlaceholders = partIds.map((_, i) => `$${i + 1}`).join(',');
+        let deleteSql = `DELETE FROM parts WHERE id IN (${deletePlaceholders})`;
 
-        if (result.changes === 0) {
-            return res.status(404).json({ error: '削除対象の部品が見つかりませんでした。' });
+        if (type === 'supplier') {
+            deleteSql += ` AND supplier_id = $${partIds.length + 1}`;
+            deleteParams.push(authId);
         }
-        res.json({ message: `${result.changes}件の部品を削除しました。` });
+
+        const result = await dbQuery(deleteSql, deleteParams);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: '削除対象の部品が見つからないか、権限がありません。' });
+        }
+        res.json({ message: `${result.rowCount}件の部品を削除しました。` });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-app.get('/api/admin/parts/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT p.id, p.part_number, p.part_name, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id ORDER BY p.id`; try { const rows = await dbAll(sql); if (!rows || rows.length === 0) { return res.status(404).send('No parts to export.'); } const header = 'ID,Part Number,Part Name,Category Name\n'; const csvRows = rows.map(row => `"${row.id}","${row.part_number}","${row.part_name}","${row.category_name || ''}"`);  const csvString = header + csvRows.join('\n');
+app.get('/api/admin/parts/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => { 
+    let sql = `SELECT p.id, p.part_number, p.part_name, c.name as category_name FROM parts p LEFT JOIN categories c ON p.category_id = c.id`;
+    const params = [];
+    if (req.session.auth.type === 'supplier') {
+        sql += " WHERE p.supplier_id = $1 OR p.supplier_id IS NULL";
+        params.push(req.session.auth.id);
+    }
+    sql += " ORDER BY p.id";
+
+    try { 
+        const rows = await dbAll(sql, params); 
+        if (!rows || rows.length === 0) { 
+            return res.status(404).send('No parts to export.'); 
+        } 
+        const header = 'ID,Part Number,Part Name,Category Name\n'; 
+        const csvRows = rows.map(row => `"${row.id}","${row.part_number}","${row.part_name}","${row.category_name || ''}"`);
+        const csvString = header + csvRows.join('\n');
         const bom = '\uFEFF';
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="parts-master.csv"');
-        res.status(200).send(Buffer.from(bom + csvString, 'utf8')); } catch (err) { res.status(500).json({ error: err.message }); } });
+        res.status(200).send(Buffer.from(bom + csvString, 'utf8')); 
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    } 
+});
 app.post('/api/admin/parts/csv', isAuthenticated, isAdminOrSupplier, upload.single('csvFile'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'CSVファイルがアップロードされていません。' });
     }
+
+    const { type, id: authId } = req.session.auth;
+    const supplierId = type === 'supplier' ? authId : null;
 
     const csvData = req.file.buffer.toString('utf-8');
     const rows = csvData.split('\n').map(row => row.trim()).filter(row => row);
@@ -452,48 +958,45 @@ app.post('/api/admin/parts/csv', isAuthenticated, isAdminOrSupplier, upload.sing
     }
 
     const header = rows.shift().toLowerCase().split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-
-    const partNumberAliases = ['part_number', 'part-number', 'part number', '部品番号', '品番'];
-    const partNameAliases = ['part_name', 'part-name', 'part name', '部品名', '品名'];
+    const partNumberAliases = ['part_number', 'part-number', 'part number', '部品品番', '品番'];
+    const partNameAliases = ['part_name', 'part-name', 'part name', '部品品名', '品名'];
     const categoryNameAliases = ['category_name', 'category', 'カテゴリー名', 'カテゴリー'];
 
-    let partNumberIndex = -1;
-    let partNameIndex = -1;
-    let categoryNameIndex = -1;
-
+    let partNumberIndex = -1, partNameIndex = -1, categoryNameIndex = -1;
     header.forEach((h, i) => {
         if (partNumberAliases.includes(h)) partNumberIndex = i;
         if (partNameAliases.includes(h)) partNameIndex = i;
         if (categoryNameAliases.includes(h)) categoryNameIndex = i;
     });
 
-    if (partNumberIndex === -1) {
-        return res.status(400).json({ error: `CSVヘッダーに部品番号を示す列が見つかりません。次のいずれかの列名を使用してください: ${partNumberAliases.join(', ')}` });
-    }
-    if (partNameIndex === -1) {
-        return res.status(400).json({ error: `CSVヘッダーに部品名を示す列が見つかりません。次のいずれかの列名を使用してください: ${partNameAliases.join(', ')}` });
+    if (partNumberIndex === -1 || partNameIndex === -1) {
+        return res.status(400).json({ error: `部品品番と部品品名の列が必須です。` });
     }
 
+    const client = await pool.connect();
     try {
-        await dbRun("BEGIN TRANSACTION;");
+        await client.query("BEGIN");
 
-        let uncategorized = await dbGet("SELECT id FROM categories WHERE name = ?", ['未分類']);
-        if (!uncategorized) {
-            const result = await dbRun("INSERT INTO categories (name) VALUES (?)", ['未分類']);
-            uncategorized = { id: result.lastID };
-        }
-        const uncategorizedId = uncategorized.id;
+        const getOrCreateCategory = async (name, supplierId) => {
+            const categoryResult = await client.query("SELECT id FROM categories WHERE name = $1 AND supplier_id IS NOT DISTINCT FROM $2", [name, supplierId]);
+            if (categoryResult.rows.length > 0) {
+                return categoryResult.rows[0].id;
+            } else {
+                const newCategoryResult = await client.query("INSERT INTO categories (name, supplier_id) VALUES ($1, $2) RETURNING id", [name, supplierId]);
+                return newCategoryResult.rows[0].id;
+            }
+        };
 
-        let successCount = 0;
-        let errorCount = 0;
+        const uncategorizedId = await getOrCreateCategory('未分類', supplierId);
+
+        let successCount = 0, errorCount = 0;
         const errors = [];
 
         for (const [index, row] of rows.entries()) {
             const fields = row.split(',').map(field => field.trim().replace(/^"|"$/g, ''));
             const part_number = fields[partNumberIndex];
-
             if (!part_number) {
-                errors.push(`行 ${index + 2}: 部品番号が空です。`);
+                errors.push(`行 ${index + 2}: 部品品番が空です。`);
                 errorCount++;
                 continue;
             }
@@ -503,100 +1006,368 @@ app.post('/api/admin/parts/csv', isAuthenticated, isAdminOrSupplier, upload.sing
             let categoryId = uncategorizedId;
 
             if (category_name) {
-                const category = await dbGet("SELECT id FROM categories WHERE name = ?", [category_name]);
-                if (category) {
-                    categoryId = category.id;
-                } else {
-                    const result = await dbRun("INSERT INTO categories (name) VALUES (?)", [category_name]);
-                    categoryId = result.lastID;
-                }
+                categoryId = await getOrCreateCategory(category_name, supplierId);
             }
 
-            const existingPart = await dbGet("SELECT id FROM parts WHERE part_number = ?", [part_number]);
-            if (existingPart) {
-                await dbRun("UPDATE parts SET part_name = ?, category_id = ? WHERE id = ?", [part_name, categoryId, existingPart.id]);
+            const existingPartResult = await client.query("SELECT id FROM parts WHERE part_number = $1 AND supplier_id IS NOT DISTINCT FROM $2", [part_number, supplierId]);
+            if (existingPartResult.rows.length > 0) {
+                await client.query("UPDATE parts SET part_name = $1, category_id = $2 WHERE id = $3", [part_name, categoryId, existingPartResult.rows[0].id]);
             } else {
-                await dbRun("INSERT INTO parts (part_number, part_name, category_id) VALUES (?, ?, ?)", [part_number, part_name, categoryId]);
+                await client.query("INSERT INTO parts (part_number, part_name, category_id, supplier_id) VALUES ($1, $2, $3, $4)", [part_number, part_name, categoryId, supplierId]);
             }
             successCount++;
         }
 
         if (errorCount > 0) {
-            await dbRun("ROLLBACK;");
-            return res.status(400).json({ error: "CSVインポートはエラーのため中断されました。", details: errors });
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: "CSVインポートがエラーのため中断されました。", details: errors });
         }
 
-        await dbRun("COMMIT;");
-        res.json({ message: "CSVインポートが正常に完了しました。", summary: `処理件数: ${successCount}件。` });
+        await client.query("COMMIT");
+        res.json({ message: "CSVインポートが正常に完了しました。", summary: `成功件数: ${successCount}件。` });
     } catch (err) {
-        await dbRun("ROLLBACK;");
+        await client.query("ROLLBACK");
         res.status(500).json({ error: '予期せぬサーバーエラーが発生しました。', details: err.message });
+    } finally {
+        client.release();
     }
 });
 
-app.get('/api/admin/users', isAuthenticated, isAdmin, async (req, res) => { try { const rows = await dbAll("SELECT id, username, role, shop_id FROM users ORDER BY id"); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.post('/api/admin/users', isAuthenticated, isAdmin, async (req, res) => { const { username, password, role, shop_id } = req.body;
- if (!username || !password || !role) {
- return res.status(400).json({ error: 'Username, password, and role are required' });
- }
- if (role === 'shop_user' && !shop_id) {
- return res.status(400).json({ error: 'Shop ID is required for shop users' });
- }
- try {
- const hash = await bcrypt.hash(password, saltRounds);
- const finalShopId = (role === 'admin' || role === 'supplier') ? null : shop_id;
- const result = await dbRun("INSERT INTO users (username, password_hash, role, shop_id) VALUES (?, ?, ?, ?)", [username, hash, role, finalShopId]);
- res.json({ id: result.lastID, username, role, shop_id: finalShopId });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+// --- Admin: Supplier Management ---
+app.get('/api/admin/suppliers', isAuthenticated, isAdmin, async (req, res) => {
+    try {
+        const suppliers = await dbAll("SELECT id, name, username FROM suppliers ORDER BY id");
+        res.json(suppliers);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
-app.put('/api/admin/users/:id', isAuthenticated, isAdmin, async (req, res) => { const { id } = req.params;
- const { username, role, shop_id, password } = req.body;
- if (!username || !role) {
- return res.status(400).json({ error: 'Username and role are required' });
- }
- if (role === 'shop_user' && !shop_id) {
- return res.status(400).json({ error: 'Shop ID is required for shop users' });
- }
- try {
- const finalShopId = (role === 'admin' || role === 'supplier') ? null : shop_id;
- if (password) {
- const hash = await bcrypt.hash(password, saltRounds);
- await dbRun("UPDATE users SET username = ?, password_hash = ?, role = ?, shop_id = ? WHERE id = ?", [username, hash, role, finalShopId, id]);
- } else {
- await dbRun("UPDATE users SET username = ?, role = ?, shop_id = ? WHERE id = ?", [username, role, finalShopId, id]);
- }
- res.json({ message: 'User updated successfully' });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+
+app.post('/api/admin/suppliers', isAuthenticated, isAdmin, async (req, res) => {
+    const { name, username, password } = req.body;
+    if (!name || !username || !password) {
+        return res.status(400).json({ error: '部品商名、ログインID、パスワードは必須です' });
+    }
+    try {
+        // Cross-table username validation
+        const userExists = await dbGet("SELECT id FROM users WHERE username = $1", [username]);
+        const shopExists = await dbGet("SELECT id FROM shops WHERE username = $1", [username]);
+        if (userExists || shopExists) {
+            return res.status(409).json({ error: `ログインID「${username}」は他の役割で既に使用されています。` });
+        }
+
+        const hash = await bcrypt.hash(password, saltRounds);
+        const result = await dbQuery("INSERT INTO suppliers (name, username, password_hash) VALUES ($1, $2, $3) RETURNING id", [name, username, hash]);
+        res.status(201).json({ id: result.rows[0].id, name, username });
+    } catch (err) {
+        if (err.code === '23505') { // unique_violation
+            return res.status(409).json({ error: 'その部品商名またはログインIDは既に使用されています。' });
+        }
+        res.status(500).json({ error: err.message });
+    }
 });
-app.delete('/api/admin/users/:id', isAuthenticated, isAdmin, async (req, res) => { const { id } = req.params;
- if (parseInt(id, 10) === req.session.user.id) {
- return res.status(400).json({ error: 'You cannot delete your own account.' });
- }
- try {
- const result = await dbRun("DELETE FROM users WHERE id = ?", [id]);
- if (result.changes === 0) {
- return res.status(404).json({ error: 'User not found' });
- }
- res.json({ message: 'User deleted successfully' });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
+
+app.put('/api/admin/suppliers/:id', isAuthenticated, isAdmin, async (req, res) => {
+    const { id: supplierId } = req.params;
+    const { name, username, password } = req.body;
+    if (!name || !username) {
+        return res.status(400).json({ error: '部品商名とログインIDは必須です' });
+    }
+    try {
+        // Cross-table username validation
+        const userExists = await dbGet("SELECT id FROM users WHERE username = $1", [username]);
+        const shopExists = await dbGet("SELECT id FROM shops WHERE username = $1", [username]);
+        const supplierConflict = await dbGet("SELECT id FROM suppliers WHERE username = $1 AND id != $2", [username, supplierId]);
+        if (userExists || shopExists || supplierConflict) {
+            return res.status(409).json({ error: `ログインID「${username}」は既に使用されています。` });
+        }
+
+        if (password) {
+            const hash = await bcrypt.hash(password, saltRounds);
+            await dbQuery("UPDATE suppliers SET name = $1, username = $2, password_hash = $3 WHERE id = $4", [name, username, hash, supplierId]);
+        } else {
+            await dbQuery("UPDATE suppliers SET name = $1, username = $2 WHERE id = $3", [name, username, supplierId]);
+        }
+        res.json({ message: 'Supplier updated successfully' });
+    } catch (err) {
+        if (err.code === '23505') { // unique_violation
+            return res.status(409).json({ error: 'その部品商名は既に使用されています。' });
+        }
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/admin/suppliers/:id', isAuthenticated, isAdmin, async (req, res) => {
+    const { id: supplierId } = req.params;
+    try {
+        const shopCountResult = await dbGet("SELECT COUNT(*) AS count FROM shops WHERE supplier_id = $1", [supplierId]);
+        if (parseInt(shopCountResult.count, 10) > 0) {
+            return res.status(400).json({ error: 'Cannot delete supplier: Shops are still assigned to them.' });
+        }
+        const partCountResult = await dbGet("SELECT COUNT(*) AS count FROM parts WHERE supplier_id = $1", [supplierId]);
+        if (parseInt(partCountResult.count, 10) > 0) {
+            return res.status(400).json({ error: 'Cannot delete supplier: Parts are still assigned to them.' });
+        }
+
+        const result = await dbQuery("DELETE FROM suppliers WHERE id = $1", [supplierId]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Supplier not found.' });
+        }
+        res.json({ message: 'Supplier deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- Supplier: Employee Management ---
+app.get('/api/supplier/employees', isAuthenticated, isSupplier, async (req, res) => {
+    const { id: supplierId } = req.session.auth;
+    try {
+        const employees = await dbAll("SELECT id, name, is_active FROM supplier_employees WHERE supplier_id = $1 ORDER BY name", [supplierId]);
+        res.json(employees);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/supplier/employees', isAuthenticated, isSupplier, async (req, res) => {
+    const { name } = req.body;
+    const { id: supplierId } = req.session.auth;
+    if (!name) {
+        return res.status(400).json({ error: 'Employee name is required' });
+    }
+    try {
+        const result = await dbQuery("INSERT INTO supplier_employees (name, supplier_id) VALUES ($1, $2) RETURNING id", [name, supplierId]);
+        res.status(201).json({ id: result.rows[0].id, name, supplier_id: supplierId });
+    } catch (err) {
+        if (err.code === '23505') { // unique_violation
+            return res.status(409).json({ error: 'An employee with this name may already exist for this supplier.' });
+        }
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/supplier/employees/:id', isAuthenticated, isSupplier, async (req, res) => {
+    const { id: employeeId } = req.params;
+    const { name, is_active } = req.body;
+    const { id: supplierId } = req.session.auth;
+
+    if (!name || is_active === undefined) {
+        return res.status(400).json({ error: 'Name and is_active status are required' });
+    }
+    try {
+        const result = await dbQuery("UPDATE supplier_employees SET name = $1, is_active = $2 WHERE id = $3 AND supplier_id = $4", [name, is_active, employeeId, supplierId]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Employee not found or you do not have permission to edit it.' });
+        }
+        res.json({ message: 'Supplier employee updated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/supplier/employees/:id', isAuthenticated, isSupplier, async (req, res) => {
+    const { id: employeeId } = req.params;
+    const { id: supplierId } = req.session.auth;
+    try {
+        const result = await dbQuery("DELETE FROM supplier_employees WHERE id = $1 AND supplier_id = $2", [employeeId, supplierId]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Employee not found or you do not have permission to delete it.' });
+        }
+        res.json({ message: 'Supplier employee deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // --- Admin Employee Management ---
-app.get('/api/admin/employees', isAuthenticated, isAdmin, async (req, res) => {
-    const { shop_id } = req.query;
-    let sql = `SELECT e.id, e.name, e.shop_id, s.name as shop_name, e.is_active FROM employees e JOIN shops s ON e.shop_id = s.id`;
+
+
+
+app.get('/api/admin/inventory/locations', isAuthenticated, isAdminOrSupplier, async (req, res) => { try { const rows = await dbAll("SELECT DISTINCT location_info FROM inventories WHERE location_info IS NOT NULL AND location_info != '' ORDER BY location_info"); res.json(rows.map(r => r.location_info)); } catch (err) { res.status(500).json({ error: err.message }); } });
+app.get('/api/admin/all-inventory', isAuthenticated, isAdminOrSupplier, async (req, res) => { 
+    let sql = `SELECT i.part_id, i.shop_id, s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, i.location_info FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id`;
     const params = [];
-    if (shop_id) {
-        sql += ' WHERE e.shop_id = ?';
-        params.push(shop_id);
+    if (req.session.auth.type === 'supplier') {
+        sql += " WHERE p.supplier_id = $1 OR p.supplier_id IS NULL";
+        params.push(req.session.auth.id);
     }
-    sql += ' ORDER BY s.name, e.name';
+    sql += " ORDER BY s.name, p.part_name";
+    try { 
+        const rows = await dbAll(sql, params); 
+        res.json(rows); 
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    } 
+});
+app.post('/api/admin/inventory', isAuthenticated, isAdminOrSupplier, async (req, res) => { 
+    const { shop_id, part_id, quantity, min_reorder_level, location_info } = req.body;
+    if (!shop_id || !part_id || quantity === undefined || min_reorder_level === undefined) {
+        return res.status(400).json({ error: 'Shop, part, quantity, and min_reorder_level are required' });
+    }
+
+    if (req.session.auth.type === 'supplier') {
+        const part = await dbGet("SELECT id FROM parts WHERE id = $1 AND (supplier_id = $2 OR supplier_id IS NULL)", [part_id, req.session.auth.id]);
+        if (!part) {
+            return res.status(403).json({ error: 'Forbidden: You can only manage inventory for parts you supply.' });
+        }
+    }
+
+    const sql = `INSERT INTO inventories (shop_id, part_id, quantity, min_reorder_level, location_info) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (part_id, shop_id) DO UPDATE SET quantity = excluded.quantity, min_reorder_level = excluded.min_reorder_level, location_info = excluded.location_info`;
+    try {
+        await dbQuery(sql, [shop_id, part_id, quantity, min_reorder_level, location_info || '']);
+        res.json({ message: 'Inventory updated successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/admin/inventory', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { shop_id, part_id } = req.body;
+    if (!shop_id || !part_id) {
+        return res.status(400).json({ error: 'shop_id and part_id are required' });
+    }
+
+    if (req.session.auth.type === 'supplier') {
+        const part = await dbGet("SELECT id FROM parts WHERE id = $1 AND supplier_id = $2", [part_id, req.session.auth.id]);
+        if (!part) {
+            return res.status(403).json({ error: 'Forbidden: You can only delete inventory for parts you own.' });
+        }
+    }
+
+    try {
+        const result = await dbQuery("DELETE FROM inventories WHERE shop_id = $1 AND part_id = $2", [shop_id, part_id]);
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Inventory entry not found' });
+        }
+        res.json({ message: 'Inventory entry deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/admin/inventory/stocktake', isAuthenticated, isAdminOrSupplier, async (req, res) => { 
+    const { shop_id, stocktakeData, performed_by_employee_id } = req.body;
+    if (!shop_id || !Array.isArray(stocktakeData)) {
+        return res.status(400).json({ error: 'Shop ID and stocktake data are required.' });
+    }
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        let updatedCount = 0;
+        for (const item of stocktakeData) {
+            if (item.part_id == null || item.actual_quantity == null) continue;
+
+            if (req.session.auth.type === 'supplier') {
+                const partResult = await client.query("SELECT id FROM parts WHERE id = $1 AND (supplier_id = $2 OR supplier_id IS NULL)", [item.part_id, req.session.auth.id]);
+                if (partResult.rows.length === 0) {
+                    console.log(`Skipping stocktake for part ID ${item.part_id} as it is not accessible by supplier ${req.session.auth.id}`);
+                    continue;
+                }
+            }
+
+            const invResult = await client.query("SELECT quantity FROM inventories WHERE part_id = $1 AND shop_id = $2", [item.part_id, shop_id]);
+            const row = invResult.rows[0];
+
+            if (row && row.quantity !== item.actual_quantity) {
+                await client.query("UPDATE inventories SET quantity = $1 WHERE part_id = $2 AND shop_id = $3", [item.actual_quantity, item.part_id, shop_id]);
+                const historySql = `INSERT INTO stocktake_history (part_id, shop_id, performed_by_employee_id, stocktake_time, quantity_before, quantity_after, notes) VALUES ($1, $2, $3, NOW(), $4, $5, $6)`;
+                await client.query(historySql, [item.part_id, shop_id, performed_by_employee_id, row.quantity, item.actual_quantity, '棚卸しによる調整']);
+                updatedCount++;
+            }
+        }
+        await client.query("COMMIT");
+        res.json({ message: `Stocktake completed successfully. ${updatedCount} items updated.` });
+    } catch (err) {
+        console.error('Stocktake transaction failed:', err);
+        await client.query("ROLLBACK");
+        res.status(500).json({ error: 'Stocktake failed and was rolled back.', details: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+app.post('/api/admin/inventory/replenish', isAuthenticated, isAdminOrSupplier, async (req, res) => {
+    const { shop_id, part_id, quantity_added, performed_by_supplier_employee_id } = req.body;
+
+    if (!shop_id || !part_id || !quantity_added) {
+        return res.status(400).json({ error: '工場、部品、および補充数量は必須です。' });
+    }
+    if (req.session.auth.type === 'supplier' && !performed_by_supplier_employee_id) {
+        return res.status(400).json({ error: '補充担当者を選択してください。' });
+    }
+
+    if (req.session.auth.type === 'supplier') {
+        const part = await dbGet("SELECT id FROM parts WHERE id = $1 AND (supplier_id = $2 OR supplier_id IS NULL)", [part_id, req.session.auth.id]);
+        if (!part) {
+            return res.status(403).json({ error: 'Forbidden: You can only replenish parts you supply.' });
+        }
+    }
+
+    const quantity = parseInt(quantity_added, 10);
+    if (isNaN(quantity) || quantity <= 0) {
+        return res.status(400).json({ error: '補充数量は正の整数である必要があります。' });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+
+        const invResult = await client.query("SELECT id FROM inventories WHERE part_id = $1 AND shop_id = $2", [part_id, shop_id]);
+        const inventory = invResult.rows[0];
+        
+        if (inventory) {
+            await client.query("UPDATE inventories SET quantity = quantity + $1 WHERE id = $2", [quantity, inventory.id]);
+        } else {
+            await client.query("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES ($1, $2, $3, 0, '')", [part_id, shop_id, quantity]);
+        }
+
+        const performed_by = req.session.auth.type === 'supplier' ? performed_by_supplier_employee_id : null;
+        await client.query(
+            `INSERT INTO replenishment_history (part_id, shop_id, performed_by_supplier_employee_id, replenished_at, quantity_added) VALUES ($1, $2, $3, NOW(), $4)`,
+            [part_id, shop_id, performed_by, quantity]
+        );
+
+        await client.query("COMMIT");
+        
+        const newQuantityResult = await dbGet("SELECT quantity FROM inventories WHERE part_id = $1 AND shop_id = $2", [part_id, shop_id]);
+
+        res.json({ message: '在庫の補充が正常に完了しました。', new_quantity: newQuantityResult.quantity });
+    } catch (err) {
+        await client.query("ROLLBACK");
+        res.status(500).json({ error: '補充処理中にエラーが発生しました。', details: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+
+app.get('/api/admin/all-usage-history', isAuthenticated, isAdminOrSupplier, async (req, res) => { 
+    const { startDate, endDate, shopId, partId } = req.query;
+    let sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, h.usage_time, e.name as employee_name, h.status, ch.reason as cancellation_reason
+               FROM usage_history h
+               LEFT JOIN shops s ON h.shop_id = s.id 
+               LEFT JOIN parts p ON h.part_id = p.id 
+               LEFT JOIN employees e ON h.employee_id = e.id
+               LEFT JOIN cancellation_history ch ON h.id = ch.usage_history_id`;
+    const whereClauses = [];
+    const params = [];
+    let paramIndex = 1;
+
+    if (req.session.auth.type === 'supplier') {
+        whereClauses.push(`(p.supplier_id = $${paramIndex++} OR p.supplier_id IS NULL)`);
+        params.push(req.session.auth.id);
+    }
+    if (startDate) { whereClauses.push(`h.usage_time >= $${paramIndex++}`); params.push(startDate); }
+    if (endDate) { whereClauses.push(`h.usage_time <= $${paramIndex++}`); params.push(endDate + ' 23:59:59'); }
+    if (shopId) { whereClauses.push(`h.shop_id = $${paramIndex++}`); params.push(shopId); }
+    if (partId) { whereClauses.push(`h.part_id = $${paramIndex++}`); params.push(partId); }
+    
+    if (whereClauses.length > 0) {
+        sql += " WHERE " + whereClauses.join(" AND ");
+    }
+    sql += " ORDER BY h.usage_time DESC";
+    
     try {
         const rows = await dbAll(sql, params);
         res.json(rows);
@@ -605,279 +1376,28 @@ app.get('/api/admin/employees', isAuthenticated, isAdmin, async (req, res) => {
     }
 });
 
-app.post('/api/admin/employees', isAuthenticated, isAdmin, async (req, res) => {
-    const { name, shop_id } = req.body;
-    if (!name || !shop_id) {
-        return res.status(400).json({ error: 'Employee name and shop_id are required' });
-    }
-    try {
-        const result = await dbRun("INSERT INTO employees (name, shop_id) VALUES (?, ?)", [name, shop_id]);
-        res.status(201).json({ id: result.lastID, name, shop_id });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.put('/api/admin/employees/:id', isAuthenticated, isAdmin, async (req, res) => {
-    const { id } = req.params;
-    const { name, shop_id, is_active } = req.body;
-    if (!name || !shop_id || is_active === undefined) {
-        return res.status(400).json({ error: 'Name, shop_id, and is_active are required' });
-    }
-    try {
-        const result = await dbRun("UPDATE employees SET name = ?, shop_id = ?, is_active = ? WHERE id = ?", [name, shop_id, is_active, id]);
-        if (result.changes === 0) {
-            return res.status(404).json({ error: 'Employee not found' });
-        }
-        res.json({ message: 'Employee updated successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.delete('/api/admin/employees/:id', isAuthenticated, isAdmin, async (req, res) => {
-    const { id } = req.params;
-    try {
-        // We might want to check for usage history before deleting.
-        // For now, we'll just delete.
-        const result = await dbRun("DELETE FROM employees WHERE id = ?", [id]);
-        if (result.changes === 0) {
-            return res.status(404).json({ error: 'Employee not found' });
-        }
-        res.json({ message: 'Employee deleted successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-
-app.get('/api/admin/inventory/locations', isAuthenticated, isAdminOrSupplier, async (req, res) => { try { const rows = await dbAll("SELECT DISTINCT location_info FROM inventories WHERE location_info IS NOT NULL AND location_info != '' ORDER BY location_info"); res.json(rows.map(r => r.location_info)); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.get('/api/admin/all-inventory', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT i.part_id, i.shop_id, s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, i.location_info FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id ORDER BY s.name, p.part_name`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.post('/api/admin/inventory', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { shop_id, part_id, quantity, min_reorder_level, location_info } = req.body;
- if (!shop_id || !part_id || quantity === undefined || min_reorder_level === undefined) {
- return res.status(400).json({ error: 'Shop, part, quantity, and min_reorder_level are required' });
- }
- const sql = `INSERT INTO inventories (shop_id, part_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?) ON CONFLICT(part_id, shop_id) DO UPDATE SET quantity = excluded.quantity, min_reorder_level = excluded.min_reorder_level, location_info = excluded.location_info`;
- try {
- await dbRun(sql, [shop_id, part_id, quantity, min_reorder_level, location_info || '']);
- res.json({ message: 'Inventory updated successfully' });
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
-});
-
-app.delete('/api/admin/inventory', isAuthenticated, isAdminOrSupplier, async (req, res) => {
-    const { shop_id, part_id } = req.body;
-    if (!shop_id || !part_id) {
-        return res.status(400).json({ error: 'shop_id and part_id are required' });
-    }
-    try {
-        const result = await dbRun("DELETE FROM inventories WHERE shop_id = ? AND part_id = ?", [shop_id, part_id]);
-        if (result.changes === 0) {
-            return res.status(404).json({ error: 'Inventory entry not found' });
-        }
-        res.json({ message: 'Inventory entry deleted successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-app.post('/api/admin/inventory/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { csvData } = req.body;
- if (!csvData) {
- return res.status(400).json({ error: 'CSV data is missing.' });
- }
- const rows = csvData.split('\n').map(row => row.trim()).filter(row => row);
- rows.shift();
- try {
- await dbRun("BEGIN TRANSACTION;");
- let successCount = 0;
- let errorCount = 0;
- const errors = [];
- for (const [index, row] of rows.entries()) {
- const [part_number, shop_name, quantity, min_reorder_level, location_info] = row.split(',').map(field => field.trim().replace(/^"|"$/g, ''));
- if (!part_number || !shop_name || quantity === undefined || min_reorder_level === undefined) {
- errors.push(`Row ${index + 1}: Invalid data - ${row}`);
- errorCount++;
- continue;
- }
- const part = await dbGet("SELECT id FROM parts WHERE part_number = ?", [part_number]);
- const shop = await dbGet("SELECT id FROM shops WHERE name = ?", [shop_name]);
- if (!part) {
- errors.push(`Row ${index + 1}: Part number not found - ${part_number}`);
- errorCount++;
- continue;
- }
- if (!shop) {
- errors.push(`Row ${index + 1}: Shop name not found - ${shop_name}`);
- errorCount++;
- continue;
- }
- const sql = `INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, ?, ?) ON CONFLICT(part_id, shop_id) DO UPDATE SET quantity = excluded.quantity, min_reorder_level = excluded.min_reorder_level, location_info = excluded.location_info;`;
- await dbRun(sql, [part.id, shop.id, parseInt(quantity), parseInt(min_reorder_level), location_info || '']);
- successCount++;
- }
- if (errorCount > 0) {
- await dbRun("ROLLBACK;");
- return res.status(400).json({ error: "CSV import failed due to errors. No data was imported.", details: errors });
- }
- await dbRun("COMMIT;");
- res.json({ message: "Inventory CSV import successful.", summary: `Success: ${successCount}, Failed: ${errorCount}` });
- } catch (err) {
- await dbRun("ROLLBACK;");
- res.status(500).json({ error: 'An unexpected error occurred.', details: err.message });
- }
-});
-app.post('/api/admin/inventory/stocktake', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { shop_id, stocktakeData } = req.body;
- const user_id = req.session.user.id;
- if (!shop_id || !Array.isArray(stocktakeData)) {
- return res.status(400).json({ error: 'Shop ID and stocktake data are required.' });
- }
- try {
- await dbRun("BEGIN TRANSACTION;");
- let updatedCount = 0;
- for (const item of stocktakeData) {
- if (item.part_id == null || item.actual_quantity == null) continue;
- const row = await dbGet("SELECT quantity FROM inventories WHERE part_id = ? AND shop_id = ?", [item.part_id, shop_id]);
- if (row && row.quantity !== item.actual_quantity) {
- await dbRun("UPDATE inventories SET quantity = ? WHERE part_id = ? AND shop_id = ?", [item.actual_quantity, item.part_id, shop_id]);
- const historySql = `INSERT INTO stocktake_history (part_id, shop_id, user_id, stocktake_time, quantity_before, quantity_after, notes) VALUES (?, ?, ?, datetime('now', 'localtime'), ?, ?, ?)`;
- await dbRun(historySql, [item.part_id, shop_id, user_id, row.quantity, item.actual_quantity, '棚卸しによる更新']);
- updatedCount++;
- }
- }
- await dbRun("COMMIT;");
- res.json({ message: `Stocktake completed successfully. ${updatedCount} items updated.` });
- } catch (err) {
- console.error('Stocktake transaction failed:', err);
- try {
- await dbRun("ROLLBACK;");
- res.status(500).json({ error: 'Stocktake failed and was rolled back.', details: err.message });
- } catch (rollbackErr) {
- console.error('Rollback failed:', rollbackErr);
- res.status(500).json({ error: 'A critical error occurred during transaction rollback.' });
- }
- }
-});
-
-app.post('/api/admin/inventory/replenish', isAuthenticated, isAdminOrSupplier, async (req, res) => {
-    const { shop_id, part_id, quantity_added } = req.body;
-    const user_id = req.session.user.id;
-
-    if (!shop_id || !part_id || !quantity_added) {
-        return res.status(400).json({ error: '工場、部品、および補充数量は必須です。' });
-    }
-
-    const quantity = parseInt(quantity_added, 10);
-    if (isNaN(quantity) || quantity <= 0) {
-        return res.status(400).json({ error: '補充数量は正の整数である必要があります。' });
-    }
-
-    try {
-        await dbRun("BEGIN TRANSACTION;");
-
-        // Check if inventory entry exists
-        const inventory = await dbGet("SELECT id FROM inventories WHERE part_id = ? AND shop_id = ?", [part_id, shop_id]);
-        
-        if (inventory) {
-            // Update existing inventory
-            await dbRun("UPDATE inventories SET quantity = quantity + ? WHERE id = ?", [quantity, inventory.id]);
-        } else {
-            // Create new inventory entry if it doesn't exist. Default min_reorder_level to 0.
-            await dbRun("INSERT INTO inventories (part_id, shop_id, quantity, min_reorder_level, location_info) VALUES (?, ?, ?, 0, '')", [part_id, shop_id, quantity]);
-        }
-
-        // Log the replenishment
-        await dbRun(
-            `INSERT INTO replenishment_history (part_id, shop_id, user_id, replenished_at, quantity_added) VALUES (?, ?, ?, datetime('now', 'localtime'), ?)`,
-            [part_id, shop_id, user_id, quantity]
-        );
-
-        await dbRun("COMMIT;");
-        
-        const new_quantity = await dbGet("SELECT quantity FROM inventories WHERE part_id = ? AND shop_id = ?", [part_id, shop_id]);
-
-        res.json({ message: '在庫の補充が正常に完了しました。', new_quantity: new_quantity.quantity });
-    } catch (err) {
-        await dbRun("ROLLBACK;");
-        res.status(500).json({ error: '補充処理中にエラーが発生しました。', details: err.message });
-    }
-});
-
-
-app.get('/api/admin/all-usage-history', isAuthenticated, isAdminOrSupplier, async (req, res) => { const { startDate, endDate, shopId, partId } = req.query;
- let sql = `SELECT 
-                s.name AS shop_name, 
-                p.part_number, 
-                p.part_name, 
-                h.usage_time, 
-                e.name as employee_name,
-                h.status,
-                ch.reason as cancellation_reason
-            FROM 
-                usage_history h
-            LEFT JOIN 
-                shops s ON h.shop_id = s.id 
-            LEFT JOIN 
-                parts p ON h.part_id = p.id 
-            LEFT JOIN 
-                employees e ON h.employee_id = e.id
-            LEFT JOIN
-                cancellation_history ch ON h.id = ch.usage_history_id`;
- const whereClauses = [];
- const params = [];
- if (startDate) {
- whereClauses.push("h.usage_time >= ?");
- params.push(startDate);
- }
- if (endDate) {
- whereClauses.push("h.usage_time <= ?");
- params.push(endDate + ' 23:59:59');
- }
- if (shopId) {
- whereClauses.push("h.shop_id = ?");
- params.push(shopId);
- }
- if (partId) {
- whereClauses.push("h.part_id = ?");
- params.push(partId);
- }
- if (whereClauses.length > 0) {
- sql += " WHERE " + whereClauses.join(" AND ");
- }
- sql += " ORDER BY h.usage_time DESC";
- try {
- const rows = await dbAll(sql, params);
- res.json(rows);
- } catch (err) {
- res.status(500).json({ error: err.message });
- }
-});
-
 app.get('/api/admin/all-usage-history/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => {
     const { startDate, endDate, shopId, partId } = req.query;
-    let sql = `SELECT 
-                    s.name AS shop_name, 
-                    p.part_number, 
-                    p.part_name, 
-                    h.usage_time, 
-                    e.name as employee_name,
-                    h.status,
-                    ch.reason as cancellation_reason
-                FROM 
-                    usage_history h
-                LEFT JOIN 
-                    shops s ON h.shop_id = s.id 
-                LEFT JOIN 
-                    parts p ON h.part_id = p.id 
-                LEFT JOIN 
-                    employees e ON h.employee_id = e.id
-                LEFT JOIN
-                    cancellation_history ch ON h.id = ch.usage_history_id`;
+    let sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, h.usage_time, e.name as employee_name, h.status, ch.reason as cancellation_reason
+               FROM usage_history h
+               LEFT JOIN shops s ON h.shop_id = s.id 
+               LEFT JOIN parts p ON h.part_id = p.id 
+               LEFT JOIN employees e ON h.employee_id = e.id
+               LEFT JOIN cancellation_history ch ON h.id = ch.usage_history_id`;
+    
     const whereClauses = [];
     const params = [];
-    if (startDate) { whereClauses.push("h.usage_time >= ?"); params.push(startDate); }
-    if (endDate) { whereClauses.push("h.usage_time <= ?"); params.push(endDate + ' 23:59:59'); }
-    if (shopId) { whereClauses.push("h.shop_id = ?"); params.push(shopId); }
-    if (partId) { whereClauses.push("h.part_id = ?"); params.push(partId); }
+    let paramIndex = 1;
+
+    if (req.session.auth.type === 'supplier') {
+        whereClauses.push(`(p.supplier_id = $${paramIndex++} OR p.supplier_id IS NULL)`);
+        params.push(req.session.auth.id);
+    }
+    if (startDate) { whereClauses.push(`h.usage_time >= $${paramIndex++}`); params.push(startDate); }
+    if (endDate) { whereClauses.push(`h.usage_time <= $${paramIndex++}`); params.push(endDate + ' 23:59:59'); }
+    if (shopId) { whereClauses.push(`h.shop_id = $${paramIndex++}`); params.push(shopId); }
+    if (partId) { whereClauses.push(`h.part_id = $${paramIndex++}`); params.push(partId); }
+    
     if (whereClauses.length > 0) { sql += " WHERE " + whereClauses.join(" AND "); }
     sql += " ORDER BY h.usage_time DESC";
 
@@ -887,23 +1407,15 @@ app.get('/api/admin/all-usage-history/csv', isAuthenticated, isAdminOrSupplier, 
             return res.status(404).send('No usage history to export for the selected criteria.');
         }
 
-        const header = '工場名,品番,部品名,使用日時,従業員名,状態,取消理由\n';
+        const header = '工場名,品番,部品品名,使用日時,従業員名,状態,取消理由\n';
         const csvRows = rows.map(row => {
             const status = row.status === 'cancelled' ? '取消済' : '使用中';
-            const values = [
-                row.shop_name,
-                row.part_number,
-                row.part_name,
-                row.usage_time,
-                row.employee_name,
-                status,
-                row.cancellation_reason || ''
-            ];
+            const values = [ row.shop_name, row.part_number, row.part_name, row.usage_time, row.employee_name, status, row.cancellation_reason || '' ];
             return values.map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(',');
         });
 
         const csvString = header + csvRows.join('\n');
-        const bom = '\uFEFF'; // BOM for UTF-8
+        const bom = '\uFEFF';
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="usage-history.csv"');
         res.status(200).send(Buffer.from(bom + csvString, 'utf8'));
@@ -911,38 +1423,81 @@ app.get('/api/admin/all-usage-history/csv', isAuthenticated, isAdminOrSupplier, 
         res.status(500).json({ error: err.message });
     }
 });
-app.get('/api/admin/reorder-list', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id WHERE i.quantity < i.min_reorder_level ORDER BY s.name, shortage DESC, p.part_name`; try { const rows = await dbAll(sql); res.json(rows); } catch (err) { res.status(500).json({ error: err.message }); } });
-app.get('/api/admin/reorder-list/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => { const sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage FROM inventories i JOIN shops s ON i.shop_id = s.id JOIN parts p ON i.part_id = p.id WHERE i.quantity < i.min_reorder_level ORDER BY s.name, shortage DESC, p.part_name`; try { const rows = await dbAll(sql); if (!rows || rows.length === 0) { return res.status(404).send('No items to export.'); } const header = '工場名,品番,部品名,現在庫数,最低発注レベル,不足数\n'; const csvRows = rows.map(row => `"${row.shop_name}","${row.part_number}","${row.part_name}",${row.quantity},${row.min_reorder_level},${row.shortage}`); const csvString = header + csvRows.join('\n');
+app.get('/api/admin/reorder-list', isAuthenticated, isAdminOrSupplier, async (req, res) => { 
+    let sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage 
+               FROM inventories i 
+               JOIN shops s ON i.shop_id = s.id 
+               JOIN parts p ON i.part_id = p.id 
+               WHERE i.quantity < i.min_reorder_level`;
+    const params = [];
+    if (req.session.auth.type === 'supplier') {
+        sql += " AND (p.supplier_id = $1 OR p.supplier_id IS NULL)";
+        params.push(req.session.auth.id);
+    }
+    sql += " ORDER BY s.name, shortage DESC, p.part_name";
+    try { 
+        const rows = await dbAll(sql, params); 
+        res.json(rows); 
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    } 
+});
+app.get('/api/admin/reorder-list/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => { 
+    let sql = `SELECT s.name AS shop_name, p.part_number, p.part_name, i.quantity, i.min_reorder_level, (i.min_reorder_level - i.quantity) AS shortage 
+               FROM inventories i 
+               JOIN shops s ON i.shop_id = s.id 
+               JOIN parts p ON i.part_id = p.id 
+               WHERE i.quantity < i.min_reorder_level`;
+    const params = [];
+    if (req.session.auth.type === 'supplier') {
+        sql += " AND (p.supplier_id = $1 OR p.supplier_id IS NULL)";
+        params.push(req.session.auth.id);
+    }
+    sql += " ORDER BY s.name, shortage DESC, p.part_name";
+    try { 
+        const rows = await dbAll(sql, params); 
+        if (!rows || rows.length === 0) { 
+            return res.status(404).send('No items to export.'); 
+        } 
+        const header = '工場名,品番,部品品名,現在庫数,最少再発注レベル,不足数\n'; 
+        const csvRows = rows.map(row => `"${row.shop_name}","${row.part_number}","${row.part_name}",${row.quantity},${row.min_reorder_level},${row.shortage}`); 
+        const csvString = header + csvRows.join('\n');
         const bom = '\uFEFF';
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="reorder-list.csv"');
-        res.status(200).send(Buffer.from(bom + csvString, 'utf8')); } catch (err) { res.status(500).json({ error: err.message }); } });
+        res.status(200).send(Buffer.from(bom + csvString, 'utf8')); 
+    } catch (err) { 
+        res.status(500).json({ error: err.message }); 
+    } 
+});
 
 // --- Replenishment History ---
-const getReplenishmentHistoryQuery = (queryParams) => {
+const getReplenishmentHistoryQuery = (queryParams, auth) => {
     const { startDate, endDate, shopId, partId } = queryParams;
-    let sql = `SELECT 
-                    rh.id, 
-                    s.name AS shop_name, 
-                    p.part_number, 
-                    p.part_name, 
-                    u.username AS user_name, 
-                    rh.replenished_at, 
-                    rh.quantity_added
-                FROM 
-                    replenishment_history rh
-                LEFT JOIN 
-                    shops s ON rh.shop_id = s.id 
-                LEFT JOIN 
-                    parts p ON rh.part_id = p.id 
-                LEFT JOIN 
-                    users u ON rh.user_id = u.id`;
+    let sql = `SELECT rh.id, s.name AS shop_name, p.part_number, p.part_name, se.name AS user_name, rh.replenished_at, rh.quantity_added
+               FROM replenishment_history rh
+               LEFT JOIN shops s ON rh.shop_id = s.id 
+               LEFT JOIN parts p ON rh.part_id = p.id 
+               LEFT JOIN supplier_employees se ON rh.performed_by_supplier_employee_id = se.id`;
     const whereClauses = [];
     const params = [];
-    if (startDate) { whereClauses.push("rh.replenished_at >= ?"); params.push(startDate); }
-    if (endDate) { whereClauses.push("rh.replenished_at <= ?"); params.push(endDate + ' 23:59:59'); }
-    if (shopId) { whereClauses.push("rh.shop_id = ?"); params.push(shopId); }
-    if (partId) { whereClauses.push("rh.part_id = ?"); params.push(partId); }
+    let paramIndex = 1;
+
+    if (auth.type === 'supplier') {
+        whereClauses.push(`(p.supplier_id = $${paramIndex++} OR p.supplier_id IS NULL)`);
+        params.push(auth.id);
+    } else if (auth.type === 'shop') {
+        whereClauses.push(`rh.shop_id = $${paramIndex++}`);
+        params.push(auth.id);
+    }
+
+    if (startDate) { whereClauses.push(`rh.replenished_at >= $${paramIndex++}`); params.push(startDate); }
+    if (endDate) { whereClauses.push(`rh.replenished_at <= $${paramIndex++}`); params.push(endDate + ' 23:59:59'); }
+    if (shopId && auth.type !== 'shop') { // Shops can't filter by other shops
+        whereClauses.push(`rh.shop_id = $${paramIndex++}`); 
+        params.push(shopId); 
+    }
+    if (partId) { whereClauses.push(`rh.part_id = $${paramIndex++}`); params.push(partId); }
     if (whereClauses.length > 0) { sql += " WHERE " + whereClauses.join(" AND "); }
     sql += " ORDER BY rh.replenished_at DESC";
     return { sql, params };
@@ -950,7 +1505,7 @@ const getReplenishmentHistoryQuery = (queryParams) => {
 
 app.get('/api/admin/replenishment-history', isAuthenticated, isAdminOrSupplier, async (req, res) => {
     try {
-        const { sql, params } = getReplenishmentHistoryQuery(req.query);
+        const { sql, params } = getReplenishmentHistoryQuery(req.query, req.session.auth);
         const rows = await dbAll(sql, params);
         res.json(rows);
     } catch (err) {
@@ -960,27 +1515,20 @@ app.get('/api/admin/replenishment-history', isAuthenticated, isAdminOrSupplier, 
 
 app.get('/api/admin/replenishment-history/csv', isAuthenticated, isAdminOrSupplier, async (req, res) => {
     try {
-        const { sql, params } = getReplenishmentHistoryQuery(req.query);
+        const { sql, params } = getReplenishmentHistoryQuery(req.query, req.session.auth);
         const rows = await dbAll(sql, params);
         if (!rows || rows.length === 0) {
             return res.status(404).send('No replenishment history to export for the selected criteria.');
         }
 
-        const header = '補充日時,工場名,品番,部品名,補充数,担当者\n';
+        const header = '補充日時,工場名,品番,部品品名,補充数,担当者\n';
         const csvRows = rows.map(row => {
-            const values = [
-                row.replenished_at,
-                row.shop_name,
-                row.part_number,
-                row.part_name,
-                row.quantity_added,
-                row.user_name
-            ];
+            const values = [ row.replenished_at, row.shop_name, row.part_number, row.part_name, row.quantity_added, row.user_name ];
             return values.map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(',');
         });
 
         const csvString = header + csvRows.join('\n');
-        const bom = '\uFEFF'; // BOM for UTF-8
+        const bom = '\uFEFF';
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', 'attachment; filename="replenishment-history.csv"');
         res.status(200).send(Buffer.from(bom + csvString, 'utf8'));
@@ -989,10 +1537,99 @@ app.get('/api/admin/replenishment-history/csv', isAuthenticated, isAdminOrSuppli
     }
 });
 
+// Shop-specific endpoint for replenishment history
+app.get('/api/replenishment-history', isAuthenticated, isShop, async (req, res) => {
+    try {
+        const { sql, params } = getReplenishmentHistoryQuery(req.query, req.session.auth);
+        const rows = await dbAll(sql, params);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/replenishment-history/csv', isAuthenticated, isShop, async (req, res) => {
+    try {
+        const { sql, params } = getReplenishmentHistoryQuery(req.query, req.session.auth);
+        const rows = await dbAll(sql, params);
+        if (!rows || rows.length === 0) {
+            return res.status(404).send('No replenishment history to export for the selected criteria.');
+        }
+
+        const header = '補充日時,工場名,品番,部品品名,補充数,担当者\n';
+        const csvRows = rows.map(row => {
+            const values = [ row.replenished_at, row.shop_name, row.part_number, row.part_name, row.quantity_added, row.user_name ];
+            return values.map(v => `"${String(v || '').replace(/"/g, '""')}"`).join(',');
+        });
+
+        const csvString = header + csvRows.join('\n');
+        const bom = '\uFEFF';
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="replenishment-history.csv"');
+        res.status(200).send(Buffer.from(bom + csvString, 'utf8'));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/cancel-usage', isAuthenticated, isShop, async (req, res) => {
+    const { usage_id, reason } = req.body;
+    const { id: shop_id, username } = req.session.auth;
+
+    if (!usage_id) {
+        return res.status(400).json({ error: 'Usage ID is required.' });
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+
+        const usageResult = await client.query("SELECT * FROM usage_history WHERE id = $1 AND shop_id = $2", [usage_id, shop_id]);
+        const usage = usageResult.rows[0];
+
+        if (!usage) {
+            await client.query("ROLLBACK");
+            return res.status(404).json({ error: 'Usage history not found or you do not have permission to cancel it.' });
+        }
+
+        if (usage.status === 'cancelled') {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: 'This usage record has already been cancelled.' });
+        }
+
+        // 1. Update usage_history status
+        await client.query("UPDATE usage_history SET status = 'cancelled' WHERE id = $1", [usage_id]);
+
+        // 2. Log the cancellation
+        const notes = `Cancelled by shop user: ${username}`;
+        await client.query("INSERT INTO cancellation_history (usage_history_id, cancelled_by_notes, cancelled_at, reason) VALUES ($1, $2, NOW(), $3)", [usage_id, notes, reason]);
+
+        // 3. Revert inventory quantity
+        await client.query("UPDATE inventories SET quantity = quantity + 1 WHERE part_id = $1 AND shop_id = $2", [usage.part_id, usage.shop_id]);
+
+        await client.query("COMMIT");
+        res.json({ message: 'Usage record cancelled successfully.' });
+
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error('Cancellation transaction failed:', err);
+        res.status(500).json({ error: 'Failed to cancel usage record.', details: err.message });
+    } finally {
+        client.release();
+    }
+});
+
 app.post('/api/admin/stocktake-analysis', isAuthenticated, isAdminOrSupplier, async (req, res) => {
     const { part_id, shop_id } = req.body;
     if (!part_id || !shop_id) {
         return res.status(400).json({ error: 'Part ID and Shop ID are required' });
+    }
+
+    if (req.session.auth.type === 'supplier') {
+        const part = await dbGet("SELECT id FROM parts WHERE id = $1 AND (supplier_id = $2 OR supplier_id IS NULL)", [part_id, req.session.auth.id]);
+        if (!part) {
+            return res.status(403).json({ error: 'Forbidden: You can only analyze stock for parts you supply.' });
+        }
     }
 
     try {
@@ -1003,7 +1640,7 @@ app.post('/api/admin/stocktake-analysis', isAuthenticated, isAdminOrSupplier, as
         const lastStocktake = await dbGet(`
             SELECT stocktake_time, quantity_after 
             FROM stocktake_history
-            WHERE part_id = ? AND shop_id = ?
+            WHERE part_id = $1 AND shop_id = $2
             ORDER BY stocktake_time DESC
             LIMIT 1
         `, [part_id, shop_id]);
@@ -1016,7 +1653,7 @@ app.post('/api/admin/stocktake-analysis', isAuthenticated, isAdminOrSupplier, as
             const firstReplenishment = await dbGet(`
                 SELECT replenished_at, quantity_added
                 FROM replenishment_history
-                WHERE part_id = ? AND shop_id = ?
+                WHERE part_id = $1 AND shop_id = $2
                 ORDER BY replenished_at ASC
                 LIMIT 1
             `, [part_id, shop_id]);
@@ -1028,16 +1665,16 @@ app.post('/api/admin/stocktake-analysis', isAuthenticated, isAdminOrSupplier, as
 
         // 2. Get all detailed records since the base time
         const replenishments = await dbAll(
-            `SELECT rh.replenished_at, rh.quantity_added, u.username 
-             FROM replenishment_history rh JOIN users u ON rh.user_id = u.id 
-             WHERE rh.part_id = ? AND rh.shop_id = ? AND rh.replenished_at > ? ORDER BY rh.replenished_at DESC`,
+            `SELECT rh.replenished_at, rh.quantity_added, se.name as username 
+             FROM replenishment_history rh JOIN supplier_employees se ON rh.performed_by_supplier_employee_id = se.id 
+             WHERE rh.part_id = $1 AND rh.shop_id = $2 AND rh.replenished_at > $3 ORDER BY rh.replenished_at DESC`,
             [part_id, shop_id, base_time]
         );
 
         const usages = await dbAll(
             `SELECT h.usage_time, h.status, e.name as employee_name 
              FROM usage_history h JOIN employees e ON h.employee_id = e.id
-             WHERE h.part_id = ? AND h.shop_id = ? AND h.usage_time > ? ORDER BY h.usage_time DESC`,
+             WHERE h.part_id = $1 AND h.shop_id = $2 AND h.usage_time > $3 ORDER BY h.usage_time DESC`,
             [part_id, shop_id, base_time]
         );
 
@@ -1065,20 +1702,18 @@ app.post('/api/admin/stocktake-analysis', isAuthenticated, isAdminOrSupplier, as
 
     } catch (err) {
         console.error("Stocktake analysis failed:", err);
-        res.status(500).json({ error: '分析データの取得中にエラーが発生しました。', details: err.message });
+        res.status(500).json({ error: '理論在庫データの分析中にエラーが発生しました。', details: err.message });
     }
 });
-
 // --- Server Start ---
 const startServer = async () => {
     await initializeDatabase();
-    if (require.main === module) {
-        app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
-    }
+    app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
 };
 
-if (process.env.NODE_ENV !== 'test') {
+// Only run the server automatically if this file is executed directly
+if (require.main === module && process.env.NODE_ENV !== 'test') {
     startServer();
 }
 
-module.exports = { app, initializeDatabase, db };
+module.exports = { app, initializeDatabase };
