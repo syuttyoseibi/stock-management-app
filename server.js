@@ -13,39 +13,55 @@ const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
 // --- PostgreSQL (Supabase) Connection ---
-// For debugging Render environment variables
-console.log('--- DATABASE CONNECTION DEBUG ---');
-if (process.env.DATABASE_URL) {
-    console.log('DATABASE_URL environment variable FOUND.');
-    // Mask password for security before logging
-    try {
-        const maskedUrl = new URL(process.env.DATABASE_URL);
-        maskedUrl.password = '*****';
-        console.log('Connecting with URL:', maskedUrl.toString());
-    } catch (e) {
-        console.error('Could not parse DATABASE_URL');
-    }
-} else {
-    console.error('FATAL: DATABASE_URL environment variable NOT FOUND!');
-}
-console.log('-----------------------------');
+let pool;
 
-
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false
-    }
-});
-
-console.log('Connecting to Supabase...');
-pool.query('SELECT NOW()', (err, res) => {
-    if (err) {
-        console.error('Error connecting to Supabase', err);
+// Do not initialize DB connection in test environment
+if (process.env.NODE_ENV !== 'test') {
+    // For debugging Render environment variables
+    console.log('--- DATABASE CONNECTION DEBUG ---');
+    if (process.env.DATABASE_URL) {
+        console.log('DATABASE_URL environment variable FOUND.');
+        // Mask password for security before logging
+        try {
+            const maskedUrl = new URL(process.env.DATABASE_URL);
+            maskedUrl.password = '*****';
+            console.log('Connecting with URL:', maskedUrl.toString());
+        } catch (e) {
+            console.error('Could not parse DATABASE_URL');
+        }
     } else {
-        console.log('Successfully connected to Supabase at', res.rows[0].now);
+        console.error('FATAL: DATABASE_URL environment variable NOT FOUND!');
     }
-});
+    console.log('-----------------------------');
+
+
+    pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: {
+            rejectUnauthorized: false
+        }
+    });
+
+    console.log('Connecting to Supabase...');
+    pool.query('SELECT NOW()', (err, res) => {
+        if (err) {
+            console.error('Error connecting to Supabase', err);
+        } else {
+            console.log('Successfully connected to Supabase at', res.rows[0].now);
+        }
+    });
+} else {
+    // In test environment, use a placeholder object for pool
+    // to avoid errors on import. The tests should mock db functions.
+    pool = {
+        query: () => Promise.resolve({ rows: [] }),
+        connect: () => Promise.resolve({
+            query: () => Promise.resolve({ rows: [] }),
+            release: () => {}
+        })
+    };
+    console.log('Running in TEST environment. Database connection skipped.');
+}
 
 const app = express();
 const PORT = 3000;
