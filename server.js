@@ -13,7 +13,30 @@ const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
 // --- PostgreSQL (Supabase) Connection ---
-const pool = new Pool();
+// For debugging Render environment variables
+console.log('--- DATABASE CONNECTION DEBUG ---');
+if (process.env.DATABASE_URL) {
+    console.log('DATABASE_URL environment variable FOUND.');
+    // Mask password for security before logging
+    try {
+        const maskedUrl = new URL(process.env.DATABASE_URL);
+        maskedUrl.password = '*****';
+        console.log('Connecting with URL:', maskedUrl.toString());
+    } catch (e) {
+        console.error('Could not parse DATABASE_URL');
+    }
+} else {
+    console.error('FATAL: DATABASE_URL environment variable NOT FOUND!');
+}
+console.log('-----------------------------');
+
+
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+        rejectUnauthorized: false
+    }
+});
 
 console.log('Connecting to Supabase...');
 pool.query('SELECT NOW()', (err, res) => {
